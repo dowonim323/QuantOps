@@ -44,3 +44,6 @@ docker-compose.override.yml
 
 # External Repos (Submodules)
 open-trading-api/
+
+# Data Files
+codes/*.mst
