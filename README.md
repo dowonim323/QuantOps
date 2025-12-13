@@ -6,7 +6,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-**QuantOps** is an all-in-one quantitative trading platform designed for the Korean stock market. It seamlessly integrates financial data acquisition, algorithmic stock selection, automated trade execution, and real-time performance monitoring into a unified, high-performance system.
+**QuantOps** is an all-in-one quantitative trading platform designed for the Korean stock market, utilizing the **Korea Investment & Securities (KIS) REST API**. It seamlessly integrates financial data acquisition, algorithmic stock selection, automated trade execution, and real-time performance monitoring into a unified, high-performance system.
 
 ---
 
@@ -99,6 +99,11 @@ QuantOps/
 ├── 📄 autorebalance.py     # Automated Trading Script
 └── 📄 README.md            # Project Documentation
 ```
+
+---
+
+## 🙏 Acknowledgements
+This project references significant portions of code from [python-kis](https://github.com/Soju06/python-kis) by Soju06. We extend our gratitude for the excellent open-source contribution which served as a foundation for the API wrapper implementation.
 
 ---
 
