@@ -1,0 +1,17 @@
+services:
+  web:
+    container_name: kis-dashboard
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    ports:
+      - "15000:15000"
+    volumes:
+      - .:/app/web
+      - ../tools:/app/tools
+      - ../pykis:/app/pykis
+      - ../db:/app/db
+      - ../logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+    restart: always

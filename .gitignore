@@ -1,0 +1,46 @@
+# Secrets and Environment Variables
+secrets/
+web/.env
+.env
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+
+# Database
+db/
+db_history/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+kis.ipynb
+# If you want to commit notebooks, ensure outputs are cleared.
+# You can uncomment the line above to exclude them by default.
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# External Repos (Submodules)
+open-trading-api/

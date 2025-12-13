@@ -1,0 +1,1963 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantOps - Automated Trading System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        gray: {
+                            850: '#1f2937',
+                            900: '#111827',
+                            950: '#030712',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .glass-panel {
+            background: rgba(31, 41, 55, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Header -->
+        <nav class="glass-effect border-b border-gray-800 px-6 py-4 sticky top-0 z-50 mb-8 rounded-xl">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-500/20">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1
+                            class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                            QuantOps</h1>
+                        <p class="text-xs text-gray-500 font-medium tracking-wide">Automated Trading Performance Monitor
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Mobile Menu Button -->
+                <button onclick="toggleMobileMenu()"
+                    class="sm:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+
+                <!-- Desktop Status & Auth -->
+                <div class="hidden sm:flex items-center space-x-4">
+                    <span
+                        class="px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20">
+                        System Active
+                    </span>
+                    <button id="authButton" onclick="openLoginModal()"
+                        class="px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs font-medium border border-gray-700 hover:bg-gray-700 hover:text-white transition-colors">
+                        Login
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Menu (Hidden by default) -->
+            <div id="nav-menu" class="hidden sm:hidden mt-4 space-y-2 pb-2">
+                <!-- Mobile menu items will be handled by the existing nav-menu logic below if adapted, 
+                     but currently the nav-menu ID is used for the main tabs. 
+                     Let's keep the main tabs separate and just fix the header structure first. -->
+            </div>
+        </nav>
+
+        <!-- Navigation Tabs -->
+        <div id="nav-menu"
+            class="hidden sm:grid grid-cols-1 sm:grid-cols-5 gap-2 rounded-xl bg-gray-900/50 p-2 mb-8 backdrop-blur-sm border border-gray-800 transition-all duration-300">
+            <button onclick="switchTab('dashboard')" id="tab-dashboard"
+                class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-blue-500 bg-gray-800 text-blue-400 shadow">
+                Dashboard
+            </button>
+            <button onclick="switchTab('portfolio')" id="tab-portfolio"
+                class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50">
+                Portfolio
+            </button>
+            <button onclick="switchTab('history')" id="tab-history"
+                class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50">
+                History
+            </button>
+            <button onclick="switchTab('analytics')" id="tab-analytics"
+                class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50">
+                Analytics
+            </button>
+            <button onclick="switchTab('recommendations')" id="tab-recommendations"
+                class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50">
+                Recommendations
+            </button>
+        </div>
+
+        <!-- Tab Contents -->
+        <div id="content-dashboard" class="tab-content block space-y-8">
+            <!-- Main Chart Section -->
+            <section>
+                <div class="glass-panel rounded-2xl p-6 shadow-xl">
+                    <div
+                        class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+                        <div
+                            class="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
+                            <h2 class="text-xl font-semibold text-gray-200 w-64" id="assetChartTitle">
+                                Cumulative Return
+                            </h2>
+                            <div class="flex items-center space-x-4">
+                                <div class="flex space-x-1 bg-gray-800/50 rounded-lg p-1">
+                                    <button onclick="updateAssetChartRange('1W')"
+                                        class="px-3 py-1 text-xs font-medium rounded-md text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                                        id="btn-range-1W">1W</button>
+                                    <button onclick="updateAssetChartRange('1M')"
+                                        class="px-3 py-1 text-xs font-medium rounded-md text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                                        id="btn-range-1M">1M</button>
+                                    <button onclick="updateAssetChartRange('3M')"
+                                        class="px-3 py-1 text-xs font-medium rounded-md text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                                        id="btn-range-3M">3M</button>
+                                    <button onclick="updateAssetChartRange('ALL')"
+                                        class="px-3 py-1 text-xs font-medium rounded-md bg-gray-700 text-white shadow-sm transition-colors"
+                                        id="btn-range-ALL">All</button>
+                                </div>
+                                <!-- Toggle Switch -->
+                                <div class="flex items-center bg-gray-800/50 rounded-lg p-1">
+                                    <button onclick="toggleAssetMode('asset')" id="btn-mode-asset"
+                                        class="px-3 py-1 text-xs font-medium rounded-md text-gray-400 hover:text-white hover:bg-gray-700 transition-colors">Asset</button>
+                                    <button onclick="toggleAssetMode('return')" id="btn-mode-return"
+                                        class="px-3 py-1 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm transition-colors">Return</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-right space-y-1 w-full sm:w-auto self-end">
+                            <div>
+                                <p class="text-sm text-gray-400" id="currentValueLabel">Total Return</p>
+                                <p class="text-2xl font-bold text-white" id="currentBalance">Loading...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="relative h-96 w-full">
+                        <canvas id="assetChart"></canvas>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div id="content-portfolio" class="tab-content hidden">
+            <!-- Portfolio Summary & Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Summary Cards -->
+                <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="glass-panel rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-gray-400">Total Invested</p>
+                            <p class="text-2xl font-bold text-white" id="portTotalInvested">-</p>
+                        </div>
+                        <div class="p-3 bg-blue-500/10 rounded-lg text-blue-400">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
+                                </path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="glass-panel rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-gray-400">Current Valuation</p>
+                            <p class="text-2xl font-bold text-white" id="portCurrentValue">-</p>
+                        </div>
+                        <div class="p-3 bg-purple-500/10 rounded-lg text-purple-400">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
+                                </path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="glass-panel rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-gray-400">Total Profit/Loss</p>
+                            <p class="text-2xl font-bold text-gray-300" id="portTotalProfit">-</p>
+                        </div>
+                        <div class="p-3 bg-green-500/10 rounded-lg text-green-400">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Allocation Chart -->
+                <div
+                    class="glass-panel rounded-2xl p-6 shadow-xl lg:col-span-1 h-[600px] flex flex-col overflow-y-auto custom-scrollbar">
+                    <h2 class="text-lg font-semibold text-gray-200 mb-4">Asset Allocation</h2>
+                    <div class="relative h-72 w-full flex justify-center">
+                        <canvas id="allocationChart"></canvas>
+                    </div>
+                    <!-- Custom Legend -->
+                    <div id="allocationLegend" class="mt-6 grid grid-cols-4 gap-1 sm:gap-2"></div>
+                </div>
+
+                <!-- Stock Table -->
+                <section class="glass-panel rounded-2xl p-6 shadow-xl lg:col-span-2 h-[600px] flex flex-col">
+                    <div
+                        class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+                        <h2 class="text-xl font-semibold text-gray-200 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                            Holdings
+                        </h2>
+                        <div class="flex items-center">
+                            <input type="checkbox" id="hideSoldToggle"
+                                class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                                onchange="loadStockPerformance(true, true)">
+                            <label for="hideSoldToggle" class="ml-2 text-sm font-medium text-gray-300">Hide
+                                Sold
+                                Stocks</label>
+                        </div>
+                    </div>
+                    <div class="overflow-auto flex-1 custom-scrollbar">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr
+                                    class="text-gray-400 text-[10px] sm:text-xs uppercase tracking-wider border-b border-gray-800 whitespace-nowrap sticky top-0 z-10 bg-[#111827]">
+                                    <th class="px-4 py-4 font-medium cursor-pointer hover:text-white transition-colors select-none w-[10%]"
+                                        onclick="sortPortfolio('symbol')">Symbol <span id="sort-symbol"></span></th>
+                                    <th class="px-4 py-4 font-medium cursor-pointer hover:text-white transition-colors select-none w-[25%]"
+                                        onclick="sortPortfolio('name')">Name <span id="sort-name"></span>
+                                    </th>
+                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[10%]"
+                                        onclick="sortPortfolio('quantity')">Qty <span id="sort-quantity"></span></th>
+                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]"
+                                        onclick="sortPortfolio('invested_amount')">Invested <span
+                                            id="sort-invested_amount"></span></th>
+                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]"
+                                        onclick="sortPortfolio('sell_amount')">Sold <span id="sort-sell_amount"></span>
+                                    </th>
+                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[10%]"
+                                        onclick="sortPortfolio('return')">Return <span id="sort-return"></span></th>
+                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]"
+                                        onclick="sortPortfolio('current_value')">Value (KRW) <span
+                                            id="sort-current_value"></span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="stockPerformance" class="text-sm divide-y divide-gray-800/50">
+                                <tr>
+                                    <td colspan="7" class="py-4 text-center text-gray-500">Loading data...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="content-history" class="tab-content hidden">
+            <!-- Recent Orders -->
+            <section class="glass-panel rounded-2xl p-6 shadow-xl">
+                <h2 class="text-xl font-semibold text-gray-200 mb-6 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01">
+                        </path>
+                    </svg>
+                    Recent Activity
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="text-gray-400 text-xs uppercase tracking-wider border-b border-gray-800">
+                                <th class="pb-3 font-medium w-[20%]">Time</th>
+                                <th class="pb-3 font-medium w-[10%]">Type</th>
+                                <th class="pb-3 font-medium w-[40%]">Name</th>
+                                <th class="pb-3 font-medium text-right w-[15%]">Qty</th>
+                                <th class="pb-3 font-medium text-right w-[15%]">Price</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentOrders" class="text-sm divide-y divide-gray-800/50">
+                            <tr>
+                                <td colspan="5" class="py-4 text-center text-gray-500">Loading data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Pagination -->
+                <div id="orderPagination" class="flex justify-center items-center space-x-2 mt-4"></div>
+            </section>
+        </div>
+
+        <div id="content-analytics" class="tab-content hidden space-y-8">
+            <!-- Key Metrics Grid -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass-panel rounded-xl p-4 text-center">
+                    <p class="text-xs text-gray-400 uppercase tracking-wider">Win Rate</p>
+                    <p class="text-2xl font-bold text-blue-400 mt-1" id="metricWinRate">-</p>
+                </div>
+                <div class="glass-panel rounded-xl p-4 text-center">
+                    <p class="text-xs text-gray-400 uppercase tracking-wider">Best Day</p>
+                    <p class="text-2xl font-bold text-green-400 mt-1" id="metricBestDay">-</p>
+                </div>
+                <div class="glass-panel rounded-xl p-4 text-center">
+                    <p class="text-xs text-gray-400 uppercase tracking-wider">Worst Day</p>
+                    <p class="text-2xl font-bold text-red-400 mt-1" id="metricWorstDay">-</p>
+                </div>
+                <div class="glass-panel rounded-xl p-4 text-center">
+                    <p class="text-xs text-gray-400 uppercase tracking-wider">Volatility (Daily)</p>
+                    <p class="text-2xl font-bold text-purple-400 mt-1" id="metricVolatility">-</p>
+                </div>
+            </div>
+
+            <!-- Daily P/L Chart -->
+            <section class="glass-panel rounded-2xl p-6 shadow-xl">
+                <h2 class="text-xl font-semibold text-gray-200 mb-6">Daily Profit/Loss</h2>
+                <div class="relative h-64 w-full">
+                    <canvas id="dailyProfitChart"></canvas>
+                </div>
+            </section>
+
+            <!-- MDD Chart -->
+            <section class="glass-panel rounded-2xl p-6 shadow-xl">
+                <h2 class="text-xl font-semibold text-gray-200 mb-6">Maximum Drawdown (MDD)</h2>
+                <div class="relative h-64 w-full">
+                    <canvas id="mddChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Monthly Returns Heatmap -->
+            <section class="glass-panel rounded-2xl p-6 shadow-xl">
+                <h2 class="text-xl font-semibold text-gray-200 mb-6">Monthly Returns</h2>
+                <div id="monthlyHeatmap" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                    <!-- Heatmap items will be injected here -->
+                    <div class="text-center text-gray-500 py-4 col-span-full">Loading data...</div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Recommendations Content -->
+        <div id="content-recommendations" class="tab-content hidden space-y-6">
+            <div class="glass-panel rounded-2xl p-6">
+                <div
+                    class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+                    <h2 class="text-xl font-bold text-white">Daily Stock Recommendations</h2>
+                    <button id="recommendationDateBtn" onclick="openRecommendationDateModal()"
+                        class="flex items-center space-x-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm rounded-lg px-4 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z">
+                            </path>
+                        </svg>
+                        <span id="recommendationDateText">Select Date</span>
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-400">
+                        <thead class="text-xs text-gray-500 uppercase bg-gray-800/50">
+                            <tr>
+                                <th scope="col" class="px-4 py-3 rounded-tl-lg">#</th>
+                                <th scope="col" class="px-4 py-3">Code</th>
+                                <th scope="col" class="px-4 py-3">Name</th>
+                                <th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Value Rank
+                                </th>
+                                <th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Momentum
+                                    Rank</th>
+                                <th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Quality
+                                    Rank</th>
+                                <th scope="col" class="px-4 py-3 text-right rounded-tr-lg hidden sm:table-cell">Total
+                                    Rank</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recommendationsTableBody">
+                            <!-- Rows will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stock History Modal -->
+    <div id="stockModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center z-50 opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-4xl w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="modalContent">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-white" id="modalTitle">Stock Name</h2>
+                    <p class="text-gray-400 text-sm" id="modalSymbol">SYMBOL</p>
+                </div>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            <div class="relative h-96 w-full">
+                <canvas id="stockChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calendar Modal (Analytics) -->
+    <div id="calendarModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center z-50 opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-2xl w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="calendarModalContent">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-white" id="calendarTitle">Month Year</h2>
+                <button onclick="closeCalendarModal()" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            <div id="calendarGrid" class="grid grid-cols-7 gap-2 text-center">
+                <!-- Days of week header -->
+                <div class="text-gray-500 text-sm font-medium py-2">Sun</div>
+                <div class="text-gray-500 text-sm font-medium py-2">Mon</div>
+                <div class="text-gray-500 text-sm font-medium py-2">Tue</div>
+                <div class="text-gray-500 text-sm font-medium py-2">Wed</div>
+                <div class="text-gray-500 text-sm font-medium py-2">Thu</div>
+                <div class="text-gray-500 text-sm font-medium py-2">Fri</div>
+                <div class="text-gray-500 text-sm font-medium py-2">Sat</div>
+                <!-- Days will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Recommendation Date Picker Modal -->
+    <div id="recommendationDateModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center z-50 opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="recDateModalContent">
+            <div class="flex justify-between items-center mb-6">
+                <button onclick="changeRecCalendarMonth(-1)"
+                    class="text-gray-400 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
+                        </path>
+                    </svg>
+                </button>
+                <h2 class="text-xl font-bold text-white" id="recCalendarTitle">Month Year</h2>
+                <button onclick="changeRecCalendarMonth(1)"
+                    class="text-gray-400 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="recCalendarGrid" class="grid grid-cols-7 gap-1 text-center mb-4">
+                <!-- Headers -->
+                <div class="text-gray-500 text-xs font-medium py-2">Sun</div>
+                <div class="text-gray-500 text-xs font-medium py-2">Mon</div>
+                <div class="text-gray-500 text-xs font-medium py-2">Tue</div>
+                <div class="text-gray-500 text-xs font-medium py-2">Wed</div>
+                <div class="text-gray-500 text-xs font-medium py-2">Thu</div>
+                <div class="text-gray-500 text-xs font-medium py-2">Fri</div>
+                <div class="text-gray-500 text-xs font-medium py-2">Sat</div>
+            </div>
+
+            <div class="flex justify-end">
+                <button onclick="closeRecDateModal()"
+                    class="text-gray-400 hover:text-white text-sm px-3 py-1">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 class="text-xl font-bold text-white mb-4">Login</h3>
+            <input type="password" id="loginPassword" placeholder="Enter Password"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 mb-4"
+                onkeypress="if(event.key === 'Enter') login()">
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeLoginModal()"
+                    class="px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="login()"
+                    class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/20">
+                    Login
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mobile Menu Toggle
+        function toggleMobileMenu() {
+            const menu = document.getElementById('nav-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        // Global State
+        let currentTab = 'dashboard';
+        let globalAssetData = [];
+        let globalPerformanceData = null; // Cache for performance data
+        let currentAssetRange = '1M';
+        let currentAssetMode = 'return'; // Default to 'return' for better UX
+        let isAuthenticated = false;
+
+        // Auth Functions
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/api/auth/status');
+                const data = await response.json();
+                isAuthenticated = data.authenticated;
+                updateAuthUI();
+            } catch (error) {
+                console.error('Auth check failed:', error);
+            }
+        }
+
+        function updateAuthUI() {
+            const btn = document.getElementById('authButton');
+            if (btn) { // Check if button exists before trying to update it
+                if (isAuthenticated) {
+                    btn.innerText = 'Logout';
+                    btn.onclick = logout;
+                    btn.className = "px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/20 hover:bg-red-500/20 transition-colors";
+                } else {
+                    btn.innerText = 'Login';
+                    btn.onclick = openLoginModal;
+                    btn.className = "px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs font-medium border border-gray-700 hover:bg-gray-700 hover:text-white transition-colors";
+                }
+            }
+
+            const assetBtn = document.getElementById('btn-mode-asset');
+
+            if (isAuthenticated) {
+                if (assetBtn) {
+                    assetBtn.disabled = false;
+                    assetBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    assetBtn.title = "";
+                }
+            } else {
+                if (assetBtn) {
+                    assetBtn.disabled = true;
+                    assetBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    assetBtn.title = "Login required to view asset value";
+
+                    // Force return mode if not authenticated
+                    if (currentAssetMode !== 'return') {
+                        toggleAssetMode('return');
+                    }
+                }
+            }
+
+            // Reload data to reflect auth state
+            // Only load dashboard data initially, other tabs will load on switch
+            if (currentTab === 'dashboard') {
+                loadDashboardData();
+            } else if (currentTab === 'portfolio') {
+                loadStockPerformance();
+            } else if (currentTab === 'history') {
+                loadOrderHistory();
+            } else if (currentTab === 'analytics') {
+                loadAnalytics();
+            } else if (currentTab === 'recommendations') {
+                loadRecommendationDates();
+            }
+        }
+
+        function openLoginModal() {
+            document.getElementById('loginModal').classList.remove('hidden');
+            document.getElementById('loginModal').classList.add('flex');
+            document.getElementById('loginPassword').focus();
+        }
+
+        function closeLoginModal() {
+            document.getElementById('loginModal').classList.add('hidden');
+            document.getElementById('loginModal').classList.remove('flex');
+            document.getElementById('loginPassword').value = '';
+        }
+
+        async function login() {
+            const password = document.getElementById('loginPassword').value;
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    isAuthenticated = true;
+                    closeLoginModal();
+                    window.location.reload();
+                } else {
+                    alert('Invalid password');
+                }
+            } catch (error) {
+                console.error('Login failed:', error);
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                isAuthenticated = false;
+                window.location.reload();
+            } catch (error) {
+                console.error('Logout failed:', error);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuthStatus(); // Check auth first, which triggers loadDashboardData
+
+            // Setup Tab Switching
+            window.switchTab = function (tabName) {
+                currentTab = tabName; // Update global currentTab
+                // Hide all contents
+                ['dashboard', 'portfolio', 'history', 'analytics', 'recommendations'].forEach(t => {
+                    document.getElementById(`content-${t}`).classList.add('hidden');
+                    const btn = document.getElementById(`tab-${t}`);
+                    if (btn) {
+                        // Reset to inactive state (Hybrid style)
+                        btn.classList.remove('bg-gray-800', 'text-blue-400', 'shadow', 'border-blue-500');
+                        btn.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-800/50', 'border-transparent');
+                    }
+                });
+
+                // Show selected content
+                document.getElementById(`content-${tabName}`).classList.remove('hidden');
+                const activeBtn = document.getElementById(`tab-${tabName}`);
+                if (activeBtn) {
+                    // Set to active state (Hybrid style)
+                    activeBtn.classList.remove('text-gray-400', 'hover:text-white', 'hover:bg-gray-800/50', 'border-transparent');
+                    activeBtn.classList.add('bg-gray-800', 'text-blue-400', 'shadow', 'border-blue-500');
+                }
+
+                // Load data if needed
+                if (tabName === 'dashboard') {
+                    loadDashboardData();
+                } else if (tabName === 'portfolio') {
+                    loadStockPerformance();
+                } else if (tabName === 'history') {
+                    loadOrderHistory();
+                } else if (tabName === 'analytics') {
+                    loadAnalytics();
+                } else if (tabName === 'recommendations') {
+                    loadRecommendationDates();
+                }
+            }
+            // Initial tab load
+            switchTab(currentTab);
+        });
+
+        // Utility for formatting currency
+        const formatKRW = (num) => new Intl.NumberFormat('ko-KR').format(Math.round(num));
+
+        // Global data storage
+        // These are now defined above with initial values
+        // let globalPerformanceData = null;
+        // let globalAnalyticsData = null;
+        // let globalAssetData = null;
+        let stockChartInstance = null;
+        let assetChartInstance = null;
+        let allocationChartInstance = null;
+        let dailyProfitChartInstance = null;
+
+        // Asset Chart Mode State
+        // let currentAssetMode = 'return'; // 'asset' or 'return'
+        // let currentAssetRange = 'ALL';
+
+        function toggleAssetMode(mode) {
+            if (currentAssetMode === mode) return;
+
+            // Prevent switching to asset mode if not authenticated
+            if (!isAuthenticated && mode === 'asset') return;
+
+            currentAssetMode = mode;
+
+            // Update UI
+            const btnAsset = document.getElementById('btn-mode-asset');
+            const btnReturn = document.getElementById('btn-mode-return');
+            const title = document.getElementById('assetChartTitle'); // Fixed ID
+            const valueLabel = document.getElementById('currentValueLabel');
+
+            if (mode === 'asset') {
+                btnAsset.classList.remove('text-gray-400', 'hover:text-white', 'hover:bg-gray-700');
+                btnAsset.classList.add('bg-blue-600', 'text-white', 'shadow-sm');
+
+                btnReturn.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-700');
+                btnReturn.classList.remove('bg-green-600', 'text-white', 'shadow-sm');
+
+                title.innerText = 'Total Asset Evolution';
+                valueLabel.innerText = 'Current Balance';
+            } else {
+                btnReturn.classList.remove('text-gray-400', 'hover:text-white', 'hover:bg-gray-700');
+                btnReturn.classList.add('bg-green-600', 'text-white', 'shadow-sm');
+
+                btnAsset.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-700');
+                btnAsset.classList.remove('bg-blue-600', 'text-white', 'shadow-sm');
+
+                title.innerText = 'Cumulative Return';
+                valueLabel.innerText = 'Total Return';
+            }
+
+            // Re-render chart
+            if (globalAssetData.length > 0) {
+                updateAssetChartRange(currentAssetRange);
+            }
+        }
+
+        // Animation Utility
+        function animateValue(id, start, end, duration) {
+            if (start === end) return;
+            const range = end - start;
+            let current = start;
+            const increment = end > start ? 1 : -1;
+            const stepTime = Math.abs(Math.floor(duration / range));
+            const obj = document.getElementById(id);
+
+            // For large ranges, step by more than 1
+            const steps = 60; // 60 frames
+            const stepValue = range / steps;
+            let step = 0;
+
+            const timer = setInterval(function () {
+                step++;
+                current += stepValue;
+                if (step >= steps) {
+                    current = end;
+                    clearInterval(timer);
+                }
+                obj.innerHTML = (id.includes('Rate') || id.includes('Return')) ?
+                    current.toFixed(2) + '%' :
+                    '₩' + formatKRW(current);
+            }, duration / steps);
+        }
+
+        // Render Asset Chart
+        function renderAssetChart(filteredData) {
+            const ctx = document.getElementById('assetChart').getContext('2d');
+
+            if (assetChartInstance) {
+                assetChartInstance.destroy();
+            }
+
+            // Prepare Data and Options based on Mode
+            let label, dataValues, borderColor, bgColorStart, bgColorEnd, yCallback, tooltipCallback;
+
+            if (currentAssetMode === 'asset') {
+                label = 'Total Asset';
+                dataValues = filteredData.map(d => d.final_asset);
+                borderColor = '#3b82f6'; // Blue
+                bgColorStart = 'rgba(59, 130, 246, 0.5)';
+                bgColorEnd = 'rgba(59, 130, 246, 0.1)';
+                yCallback = function (value) { return '₩' + formatKRW(value); };
+                tooltipCallback = function (context) { return context.dataset.label + ': ₩' + formatKRW(context.parsed.y); };
+            } else {
+                label = 'Cumulative Return';
+                dataValues = filteredData.map(d => d.cumulative_return);
+                borderColor = '#10b981'; // Green
+                bgColorStart = 'rgba(16, 185, 129, 0.5)';
+                bgColorEnd = 'rgba(16, 185, 129, 0.1)';
+                yCallback = function (value) { return value.toFixed(2) + '%'; };
+                tooltipCallback = function (context) { return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%'; };
+            }
+
+            // Gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, bgColorStart);
+            gradient.addColorStop(1, bgColorEnd);
+
+            assetChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: filteredData.map(d => d.date),
+                    datasets: [{
+                        label: label,
+                        data: dataValues,
+                        borderColor: borderColor,
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            align: 'end',
+                            labels: { color: '#9ca3af', usePointStyle: true, boxWidth: 8 }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                            titleColor: '#9ca3af',
+                            bodyColor: '#f3f4f6',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1,
+                            padding: 10,
+                            callbacks: { label: tooltipCallback }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#6b7280' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                display: window.innerWidth >= 640,
+                                color: '#6b7280',
+                                callback: yCallback
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        // Asset Chart Range Update
+        function updateAssetChartRange(range) {
+            currentAssetRange = range;
+            if (!globalAssetData || globalAssetData.length === 0) {
+                return;
+            }
+
+            // Update Range Buttons
+            ['1W', '1M', '3M', 'ALL'].forEach(r => {
+                const btn = document.getElementById(`btn-range-${r}`);
+                if (btn) { // Ensure button exists
+                    if (r === range) {
+                        btn.classList.remove('text-gray-400', 'hover:text-white', 'hover:bg-gray-700');
+                        btn.classList.add('bg-gray-700', 'text-white', 'shadow-sm');
+                    } else {
+                        btn.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-700');
+                        btn.classList.remove('bg-gray-700', 'text-white', 'shadow-sm');
+                    }
+                }
+            });
+
+            // Filter Data
+            const latestDateStr = globalAssetData[globalAssetData.length - 1].date;
+            const now = new Date(latestDateStr);
+            let cutoffDate = new Date('2000-01-01'); // Default ALL
+
+            if (range === '1W') {
+                cutoffDate = new Date(now);
+                cutoffDate.setDate(now.getDate() - 7);
+            } else if (range === '1M') {
+                cutoffDate = new Date(now);
+                cutoffDate.setMonth(now.getMonth() - 1);
+            } else if (range === '3M') {
+                cutoffDate = new Date(now);
+                cutoffDate.setMonth(now.getMonth() - 3);
+            }
+
+            const cutoffStr = cutoffDate.toISOString().split('T')[0];
+            const filteredData = globalAssetData.filter(d => d.date >= cutoffStr);
+
+            // Update Current Value Display
+            const lastData = filteredData[filteredData.length - 1];
+            if (lastData) {
+                if (currentAssetMode === 'asset') {
+                    document.getElementById('currentBalance').innerText = isAuthenticated ? `₩${formatKRW(lastData.final_asset)}` : '-';
+                    document.getElementById('currentBalance').className = "text-2xl font-bold text-white";
+                } else {
+                    const val = lastData.cumulative_return;
+                    const sign = val >= 0 ? '+' : '';
+                    const colorClass = val >= 0 ? 'text-red-400' : 'text-blue-400';
+                    document.getElementById('currentBalance').innerText = `${sign}${val.toFixed(2)}%`;
+                    document.getElementById('currentBalance').className = `text-2xl font-bold ${colorClass}`;
+                }
+            }
+
+            renderAssetChart(filteredData);
+        }
+
+        // Asset Chart Initialization
+        async function loadDashboardData() {
+            await loadAssetChart();
+        }
+
+        async function loadAssetChart() {
+            try {
+                const response = await fetch('/api/assets');
+                const data = await response.json();
+                globalAssetData = data;
+
+                if (data.length > 0) {
+                    // Initial load with ALL range
+                    updateAssetChartRange('ALL');
+                }
+            } catch (e) {
+                console.error("Failed to load asset chart", e);
+            }
+        }
+
+        // Modal Functions
+        function openModal(symbol, name) {
+            const modal = document.getElementById('stockModal');
+            const content = document.getElementById('modalContent');
+            const title = document.getElementById('modalTitle');
+            const subtitle = document.getElementById('modalSymbol');
+
+            title.innerText = name;
+            subtitle.innerText = symbol;
+
+            modal.classList.remove('hidden');
+            // Trigger reflow
+            void modal.offsetWidth;
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+
+            renderStockChart(symbol);
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('stockModal');
+            const content = document.getElementById('modalContent');
+
+            modal.classList.add('opacity-0');
+            content.classList.add('scale-95');
+
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // Calendar Modal Functions
+        function openCalendarModal(month) {
+            if (!globalAnalyticsData) return;
+
+            const modal = document.getElementById('calendarModal');
+            const content = document.getElementById('calendarModalContent');
+            const title = document.getElementById('calendarTitle');
+
+            title.innerText = month; // e.g. "2025-10"
+            renderCalendar(month);
+
+            modal.classList.remove('hidden');
+            void modal.offsetWidth;
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+        }
+
+        function closeCalendarModal() {
+            const modal = document.getElementById('calendarModal');
+            const content = document.getElementById('calendarModalContent');
+
+            modal.classList.add('opacity-0');
+            content.classList.add('scale-95');
+
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // Close on backdrop click
+        document.getElementById('stockModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('stockModal')) closeModal();
+        });
+        document.getElementById('calendarModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('calendarModal')) closeCalendarModal();
+        });
+        document.getElementById('loginModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('loginModal')) closeLoginModal();
+        });
+
+        function renderCalendar(monthStr) {
+            const grid = document.getElementById('calendarGrid');
+            // Keep headers
+            const headers = Array.from(grid.children).slice(0, 7);
+            grid.innerHTML = '';
+            headers.forEach(h => grid.appendChild(h));
+
+            const [year, month] = monthStr.split('-').map(Number);
+            const firstDay = new Date(year, month - 1, 1);
+            const lastDay = new Date(year, month, 0);
+            const daysInMonth = lastDay.getDate();
+            const startDayOfWeek = firstDay.getDay(); // 0=Sun, 1=Mon...
+
+            // Empty cells for days before start of month
+            for (let i = 0; i < startDayOfWeek; i++) {
+                const div = document.createElement('div');
+                div.className = 'p-2';
+                grid.appendChild(div);
+            }
+
+            // Daily data map
+            const dailyMap = {};
+            if (globalAnalyticsData && globalAnalyticsData.daily_returns) {
+                globalAnalyticsData.daily_returns.forEach(d => {
+                    dailyMap[d.date] = d.daily_return;
+                });
+            }
+
+            // Render days
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const ret = dailyMap[dateStr];
+
+                const div = document.createElement('div');
+                div.className = 'p-2 rounded-lg border border-gray-800 bg-gray-800/30 flex flex-col items-center justify-center h-20';
+
+                let content = `<span class="text-gray-400 text-xs mb-1">${d}</span>`;
+
+                if (ret !== undefined) {
+                    const isPos = ret >= 0;
+                    const colorClass = isPos ? 'text-red-400' : 'text-blue-400';
+                    const sign = isPos ? '+' : '';
+                    content += `<span class="text-sm font-bold ${colorClass}">${sign}${ret.toFixed(2)}%</span>`;
+
+                    // Highlight background slightly for significant moves?
+                    if (Math.abs(ret) > 1) {
+                        div.classList.add(isPos ? 'bg-red-500/10' : 'bg-blue-500/10');
+                        div.classList.add(isPos ? 'border-red-500/20' : 'border-blue-500/20');
+                    }
+                } else {
+                    content += `<span class="text-gray-600 text-xs">-</span>`;
+                }
+
+                div.innerHTML = content;
+                grid.appendChild(div);
+            }
+        }
+
+        function renderStockChart(symbol) {
+            const ctx = document.getElementById('stockChart').getContext('2d');
+
+            // Filter data for this stock
+            const stockData = globalPerformanceData
+                .filter(p => p.symbol === symbol)
+                .sort((a, b) => a.date.localeCompare(b.date));
+
+            const labels = stockData.map(d => d.date);
+            const values = stockData.map(d => d.current_value + d.sell_amount);
+            const invested = stockData.map(d => d.invested_amount);
+
+            if (stockChartInstance) {
+                stockChartInstance.destroy();
+            }
+
+            stockChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total Value (Held + Sold)',
+                            data: isAuthenticated ? values : values.map(() => null), // Mask data if not authenticated
+                            borderColor: '#8b5cf6',
+                            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Invested Amount',
+                            data: isAuthenticated ? invested : invested.map(() => null), // Mask data if not authenticated
+                            borderColor: '#6b7280',
+                            borderDash: [5, 5],
+                            borderWidth: 1,
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                            titleColor: '#9ca3af',
+                            bodyColor: '#f3f4f6',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function (context) {
+                                    return isAuthenticated ? context.dataset.label + ': ₩' + formatKRW(context.parsed.y) : '-';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#6b7280' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#6b7280',
+                                callback: function (value) { return isAuthenticated ? '₩' + formatKRW(value) : '-'; }
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        // Sorting State
+        let currentSort = { column: 'current_value', direction: 'desc' };
+
+        function sortPortfolio(column) {
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'desc'; // Default to desc for new column
+            }
+            loadStockPerformance(true, true);
+        }
+
+        function updateSortIcons() {
+            // Reset all icons
+            const cols = ['symbol', 'name', 'quantity', 'invested_amount', 'sell_amount', 'return', 'current_value'];
+            cols.forEach(c => {
+                const iconEl = document.getElementById(`sort-${c}`);
+                if (iconEl) iconEl.innerText = '';
+            });
+
+            // Set active icon
+            const arrow = currentSort.direction === 'asc' ? '↑' : '↓';
+            const iconEl = document.getElementById(`sort-${currentSort.column}`);
+            if (iconEl) iconEl.innerText = arrow;
+        }
+
+        // Stock Performance
+        async function loadStockPerformance(isUpdate = false, tableOnly = false) {
+            try {
+                let data = globalPerformanceData;
+                if (!data) {
+                    const response = await fetch('/api/performance');
+                    data = await response.json();
+                    globalPerformanceData = data;
+                }
+
+                const latestDate = data.reduce((max, p) => p.date > max ? p.date : max, "");
+                let latestData = data.filter(p => p.date === latestDate);
+
+                // 1. Always filter out stocks that have never been invested in (invested_amount == 0)
+                // BUT if guest, invested_amount is masked to 0, so we must NOT filter by it.
+                if (isAuthenticated) {
+                    latestData = latestData.filter(p => p.invested_amount > 0);
+                } else {
+                    // For guests, we can't filter by invested_amount. 
+                    // We should filter by something else, or just show all?
+                    // Usually daily_stock_performance contains all relevant stocks.
+                    // Let's filter by name or symbol existence just in case.
+                    latestData = latestData.filter(p => p.symbol && p.name);
+                }
+
+                // Calculate Summary Metrics
+                // Total Invested (Principal) = Initial Asset + Sum of all subsequent transfers
+                let netInvestment = 0;
+                let currentTotalAsset = 0;
+
+                if (globalAssetData && globalAssetData.length > 0) {
+                    // 1. Start with Day 0 Final Asset as Initial Principal
+                    netInvestment = globalAssetData[0].final_asset;
+
+                    // 2. Add all subsequent transfers
+                    for (let i = 1; i < globalAssetData.length; i++) {
+                        netInvestment += (globalAssetData[i].transfer_amount || 0);
+                    }
+
+                    // Get Current Total Asset (Last day final asset)
+                    // Note: This might be slightly delayed compared to real-time stock prices,
+                    // but for consistency with 'netInvestment' derived from history, it's safer.
+                    // HOWEVER, 'currentValue' (Stocks) is real-time.
+                    // Ideally: Total Asset = Real-time Stock Value + Cash.
+                    // We calculated Cash earlier (or will calculate it).
+                    // Let's rely on the Cash calculation logic which uses (Last Total Asset - Last Stock Value) approximation,
+                    // or better: Recalculate Cash here if needed, or use the one from Chart logic.
+                    // Actually, we need 'netInvestment' BEFORE chart logic to display summary.
+
+                    currentTotalAsset = globalAssetData[globalAssetData.length - 1].final_asset;
+                }
+
+                // If we have real-time stock data, we should try to update Total Asset
+                // But 'cash' is hard to know real-time without an API call.
+                // Let's assume 'Cash' = Last Recorded Total Asset - Last Recorded Stock Value.
+                // And Current Total Asset = Current Stock Value + Cash.
+
+                const currentStockValue = latestData.reduce((sum, p) => sum + p.current_value, 0);
+
+                // Estimate Cash from last history point (Total Asset - Stock Value at that time)
+                // This is tricky because we don't have historical stock breakdown easily here.
+                // Let's stick to the User's request: "Total Invested" is the key.
+                // "Total Profit" = Current Total Asset - Total Invested.
+
+                // Let's use (Historical Total Asset - Net Investment) for consistency with the "Total Invested" definition derived from history.
+                // The user sees "Current Value" (Stocks) updating real-time.
+                // If "Total Profit" is stale, it might be confusing.
+
+                // Let's assume Cash is constant from last close.
+                // Cash = Last Total Asset - Last Stock Value? No.
+                // We don't have 'Last Stock Value' separately stored in daily_assets.
+
+                // Let's look at app.py again. 'daily_assets' has 'final_asset'.
+                // It doesn't have breakdown.
+
+                // OK, for now, let's use the Last Recorded Total Asset for the Profit calculation.
+                // It's the most accurate "Total" we have.
+                // Total Profit = Last Final Asset - Net Investment.
+
+                const totalInvested = netInvestment;
+                // Note: We are replacing the old 'totalInvested' (sum of stock buy prices) with 'netInvestment' (Principal).
+
+                // For 'Current Value' display, we usually show Total Asset or Stock Value?
+                // The UI says "Current Balance" (Asset Mode) or "Total Return" (Return Mode).
+                // The element ID is 'portCurrentValue'.
+                // In the code below: document.getElementById('portCurrentValue').innerText = ... currentValue;
+                // 'currentValue' was sum of stocks.
+                // If we change 'Total Invested' to Principal, 'Current Value' should probably be 'Total Asset' (Principal + Profit).
+                // Let's update 'currentValue' variable to be 'currentTotalAsset' (Last Final Asset).
+
+                const totalProfit = currentTotalAsset - totalInvested;
+
+                // We need to update the 'currentValue' variable used for display to be Total Asset
+                // But wait, 'currentValue' is also used for 'Total Profit' calculation in the old code:
+                // const totalProfit = (currentValue + totalSellAmount) - totalInvested;
+                // We are replacing that.
+
+                // We need to update the 'currentValue' variable used for display to be Total Asset
+                // But wait, 'currentValue' is also used for 'Total Profit' calculation in the old code:
+                // const totalProfit = (currentValue + totalSellAmount) - totalInvested;
+                // We are replacing that.
+
+                // Let's redefine the variables to be clear.
+                const displayTotalInvested = totalInvested;
+                const displayCurrentValue = currentTotalAsset; // Show Total Asset
+                const displayTotalProfit = totalProfit;
+
+                if (!tableOnly) {
+                    if (isUpdate) {
+                        document.getElementById('portTotalInvested').innerText = isAuthenticated ? '₩' + formatKRW(displayTotalInvested) : '-';
+                        document.getElementById('portCurrentValue').innerText = isAuthenticated ? '₩' + formatKRW(displayCurrentValue) : '-';
+                    } else {
+                        if (isAuthenticated) {
+                            animateValue('portTotalInvested', 0, displayTotalInvested, 1000);
+                            animateValue('portCurrentValue', 0, displayCurrentValue, 1000);
+                        } else {
+                            document.getElementById('portTotalInvested').innerText = '-';
+                            document.getElementById('portCurrentValue').innerText = '-';
+                        }
+                    }
+
+                    const profitEl = document.getElementById('portTotalProfit');
+                    if (isAuthenticated) {
+                        profitEl.innerText = '₩' + formatKRW(displayTotalProfit);
+                        profitEl.className = `text-2xl font-bold ${displayTotalProfit >= 0 ? 'text-red-400' : 'text-blue-400'}`;
+                    } else {
+                        profitEl.innerText = '-';
+                        profitEl.className = `text-2xl font-bold text-gray-400`;
+                    }
+
+                    // Render Allocation Chart (Always use currently held stocks)
+                    const ctxAlloc = document.getElementById('allocationChart').getContext('2d');
+
+
+
+                    // Group small holdings into 'Others' if too many
+                    // Filter out zero quantity stocks for the chart
+                    // For guests, use 'weight' instead of 'current_value'
+                    const valueKey = isAuthenticated ? 'current_value' : 'weight';
+
+                    let chartData = latestData.filter(p => p[valueKey] > 0).sort((a, b) => b[valueKey] - a[valueKey]);
+                    let labels = chartData.map(p => p.name);
+                    let values = chartData.map(p => p[valueKey]);
+
+                    // Calculate Cash for Chart
+                    let cashValue = 0;
+
+                    if (isAuthenticated) {
+                        // Normal mode: Cash = Total Asset - Stock Value
+                        if (currentTotalAsset > 0) {
+                            cashValue = currentTotalAsset - currentStockValue;
+                        }
+                    } else {
+                        // Guest mode: values are percentages. Total is 100.
+                        // Cash % = 100 - Sum of stock weights
+                        const totalStockWeight = values.reduce((a, b) => a + b, 0);
+                        cashValue = 100 - totalStockWeight;
+                        // Avoid small floating point errors
+                        if (cashValue < 0.01) cashValue = 0;
+                    }
+
+                    if (cashValue > 0) {
+                        labels.push('Cash');
+                        values.push(cashValue);
+                    }
+
+                    if (chartData.length > 20) { // Adjusted logic: Top 20 stocks + Cash + Others (if needed)
+                        // If we have many stocks, we might want to group them.
+                        // But 'Cash' should ideally be separate.
+                        // Let's simplify: Take top 20 stocks, group rest as 'Others', then add 'Cash'.
+
+                        const top20 = chartData.slice(0, 20);
+                        const others = chartData.slice(20);
+                        const othersValue = others.reduce((sum, p) => sum + p[valueKey], 0);
+
+                        labels = top20.map(p => p.name);
+                        values = top20.map(p => p[valueKey]);
+
+                        if (othersValue > 0) {
+                            labels.push('Others');
+                            values.push(othersValue);
+                        }
+
+                        if (cashValue > 0) {
+                            labels.push('Cash');
+                            values.push(cashValue);
+                        }
+                    }
+
+                    if (allocationChartInstance) {
+                        allocationChartInstance.destroy();
+                    }
+
+                    // Extended Color Palette for 20+ items
+                    const palette = [
+                        '#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444',
+                        '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16',
+                        '#06b6d4', '#a855f7', '#d946ef', '#f43f5e', '#eab308',
+                        '#22c55e', '#0ea5e9', '#64748b', '#78716c', '#a1a1aa',
+                        '#4b5563', // Others
+                        '#9ca3af'  // Cash (Gray)
+                    ];
+
+                    // Ensure palette is long enough or cycle
+                    const bgColors = labels.map((label, i) => {
+                        if (label === 'Cash') return '#9ca3af'; // Gray for Cash
+                        if (label === 'Others') return '#4b5563'; // Dark Gray for Others
+                        return palette[i % (palette.length - 2)]; // Cycle through colors excluding last two special ones
+                    });
+
+                    allocationChartInstance = new Chart(ctxAlloc, {
+                        type: 'doughnut',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                data: values,
+                                backgroundColor: bgColors,
+                                borderWidth: 0
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false // Disable default legend
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function (context) {
+                                            const label = context.label || '';
+                                            const value = context.parsed;
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = ((value / total) * 100).toFixed(1) + '%';
+                                            return isAuthenticated ? `${label}: ₩${formatKRW(value)} (${percentage})` : `${label}: ${percentage}`;
+                                        }
+                                    }
+                                }
+                            },
+                            cutout: '60%',
+                            animation: {
+                                duration: isUpdate ? 0 : 1000
+                            }
+                        }
+                    });
+
+                    // Generate Custom Legend
+                    const legendContainer = document.getElementById('allocationLegend');
+                    let legendHtml = '';
+                    labels.forEach((label, index) => {
+                        if (label === 'Cash') return; // Hide Cash from Legend
+
+                        const color = bgColors[index];
+                        legendHtml += `
+                                <div class="flex items-center space-x-1 sm:space-x-2 p-1 sm:p-1.5 rounded hover:bg-gray-800/50 transition-colors">
+                                    <span class="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
+                                    <span class="text-gray-300 truncate text-[9px] sm:text-[11px]" title="${label}">${label}</span>
+                                </div>
+                            `;
+                    });
+                    legendContainer.innerHTML = legendHtml;
+                }
+
+                // 2. Filter out sold stocks (quantity == 0) for TABLE DISPLAY if toggle is checked
+                // BUT if guest, quantity is masked to 0, so we must NOT filter by it.
+                let displayData = [...latestData];
+                const hideSold = document.getElementById('hideSoldToggle').checked;
+                if (hideSold && isAuthenticated) {
+                    displayData = displayData.filter(p => p.quantity > 0);
+                }
+
+                // Calculate derived values for sorting
+                displayData = displayData.map(p => {
+                    const totalInvested = p.invested_amount;
+                    const totalValue = p.current_value + p.sell_amount;
+                    let returnRate = 0;
+
+                    if (p.return_rate !== undefined) {
+                        returnRate = p.return_rate;
+                    } else {
+                        returnRate = totalInvested > 0 ? ((totalValue / totalInvested) - 1) * 100 : 0;
+                    }
+
+                    return { ...p, return: returnRate };
+                });
+
+                // Sort
+                displayData.sort((a, b) => {
+                    let valA = a[currentSort.column];
+                    let valB = b[currentSort.column];
+
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+
+                    if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                updateSortIcons();
+
+                let html = '';
+                displayData.forEach(p => {
+                    const quantity = p.quantity !== undefined ? p.quantity : '-';
+                    const isPositive = p.return >= 0;
+                    const colorClass = isPositive ? 'text-red-400' : 'text-blue-400';
+                    const bgClass = isPositive ? 'bg-red-500/10' : 'bg-blue-500/10';
+                    const sign = isPositive ? '+' : '';
+
+                    html += `
+                        <tr class="hover:bg-gray-800/50 transition-colors cursor-pointer group whitespace-nowrap" onclick="openModal('${p.symbol}', '${p.name}')">
+                            <td class="px-4 py-3 text-xs sm:text-sm font-medium text-gray-300 group-hover:text-white transition-colors">${p.symbol}</td>
+                            <td class="px-4 py-3 text-xs sm:text-sm text-gray-400 group-hover:text-gray-200 transition-colors">${p.name}</td>
+                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? quantity : '-'}</td>
+                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? '₩' + formatKRW(p.invested_amount) : '-'}</td>
+                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? '₩' + formatKRW(p.sell_amount) : '-'}</td>
+                            <td class="px-4 py-3 text-right">
+                                <span class="px-2 py-1 rounded text-[10px] sm:text-xs font-semibold ${colorClass} ${bgClass}">
+                                    ${sign + p.return.toFixed(2) + '%'}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? '₩' + formatKRW(p.current_value) : '-'}</td>
+                        </tr>
+                    `;
+                });
+
+                if (latestData.length === 0) {
+                    html = '<tr><td colspan="7" class="py-4 text-center text-gray-500">No performance data available</td></tr>';
+                }
+
+                document.getElementById('stockPerformance').innerHTML = html;
+            } catch (e) {
+                console.error("Failed to load stock performance", e);
+                document.getElementById('stockPerformance').innerHTML = '<tr><td colspan="7" class="py-4 text-center text-red-500">Error loading data</td></tr>';
+            }
+        }
+
+        // Recent Orders Pagination State
+        let globalOrderData = [];
+        let currentOrderPage = 1;
+        const itemsPerPage = 10;
+
+        async function loadOrderHistory() {
+            try {
+                const response = await fetch('/api/orders');
+                const data = await response.json();
+                globalOrderData = data;
+                renderOrderHistory(1);
+            } catch (e) {
+                console.error("Failed to load orders", e);
+                document.getElementById('recentOrders').innerHTML = '<tr><td colspan="5" class="py-4 text-center text-red-500">Error loading data</td></tr>';
+            }
+        }
+
+        function renderOrderHistory(page) {
+            currentOrderPage = page;
+            const start = (page - 1) * itemsPerPage;
+            const end = start + itemsPerPage;
+            const pageData = globalOrderData.slice(start, end);
+
+            let html = '';
+            pageData.forEach(o => {
+                const isBuy = o.type.toLowerCase() === 'buy';
+                const typeColor = isBuy ? 'text-red-400' : 'text-blue-400';
+                const typeLabel = o.type.toUpperCase();
+
+                html += `
+                    <tr class="hover:bg-gray-800/50 transition-colors">
+                        <td class="py-3 text-gray-500 text-xs">${o.date} <br> ${o.time}</td>
+                        <td class="py-3 font-medium ${typeColor}">${typeLabel}</td>
+                        <td class="py-3 text-gray-300">${o.name}</td>
+                        <td class="py-3 text-right text-gray-400">${isAuthenticated ? o.executed_qty : '-'}</td>
+                        <td class="py-3 text-right text-gray-300 font-mono">${isAuthenticated ? '₩' + formatKRW(o.price) : '-'}</td>
+                    </tr>
+                `;
+            });
+
+            if (pageData.length === 0) {
+                html = '<tr><td colspan="5" class="py-4 text-center text-gray-500">No orders found</td></tr>';
+            }
+
+            document.getElementById('recentOrders').innerHTML = html;
+
+            // Render Pagination Controls
+            const totalPages = Math.ceil(globalOrderData.length / itemsPerPage);
+            const paginationEl = document.getElementById('orderPagination');
+
+            if (totalPages <= 1) {
+                paginationEl.innerHTML = '';
+                return;
+            }
+
+            let paginationHtml = '';
+
+            // Prev Button
+            paginationHtml += `
+                <button 
+                    onclick="renderOrderHistory(${page - 1})" 
+                    class="px-3 py-1 text-xs font-medium rounded-md ${page === 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-white hover:bg-gray-700 transition-colors'}"
+                    ${page === 1 ? 'disabled' : ''}
+                >
+                    Prev
+                </button>
+            `;
+
+            // Page Numbers (Simple version: 1 2 3 ... or all if few)
+            // Let's show max 5 page numbers centered around current
+            let startPage = Math.max(1, page - 2);
+            let endPage = Math.min(totalPages, startPage + 4);
+
+            if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHtml += `
+                    <button 
+                        onclick="renderOrderHistory(${i})" 
+                        class="px-3 py-1 text-xs font-medium rounded-md ${i === currentOrderPage ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700 transition-colors'}"
+                    >
+                        ${i}
+                    </button>
+                `;
+            }
+
+            // Next Button
+            paginationHtml += `
+                <button 
+                    onclick="renderOrderHistory(${page + 1})" 
+                    class="px-3 py-1 text-xs font-medium rounded-md ${page === totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-white hover:bg-gray-700 transition-colors'}"
+                    ${page === totalPages ? 'disabled' : ''}
+                >
+                    Next
+                </button>
+            `;
+
+            paginationEl.innerHTML = paginationHtml;
+        }
+
+        // Analytics
+        async function loadAnalytics() {
+            try {
+                const response = await fetch('/api/analytics');
+                const data = await response.json();
+
+                if (!data || Object.keys(data).length === 0) return;
+
+                globalAnalyticsData = data; // Store globally
+
+                // 1. Metrics
+                document.getElementById('metricWinRate').innerText = `${data.win_rate.toFixed(1)}%`;
+                document.getElementById('metricBestDay').innerText = `+${data.best_day.toFixed(2)}%`;
+                document.getElementById('metricBestDay').className = 'text-2xl font-bold text-red-400 mt-1'; // Rise = Red
+                document.getElementById('metricWorstDay').innerText = `${data.worst_day.toFixed(2)}%`;
+                document.getElementById('metricWorstDay').className = 'text-2xl font-bold text-blue-400 mt-1'; // Fall = Blue
+                document.getElementById('metricVolatility').innerText = `${data.volatility.toFixed(2)}%`;
+
+                // Assuming latestAsset is available from global scope or another fetch
+                // This block is added based on the user's instruction to update asset summary colors
+                // and assumes `latestAsset` is defined elsewhere or will be defined.
+                // If `latestAsset` is not defined, this part will cause a runtime error.
+                // To make it syntactically correct and match the instruction, we place it here.
+                if (typeof latestAsset !== 'undefined' && latestAsset) {
+                    const totalProfit = latestAsset.final_asset - latestAsset.initial_asset;
+                    const profitRate = (totalProfit / latestAsset.initial_asset) * 100;
+
+                    document.getElementById('totalAsset').innerText = isAuthenticated ? `₩${formatKRW(latestAsset.final_asset)}` : '-';
+                    document.getElementById('totalProfit').innerText = isAuthenticated ? `₩${formatKRW(totalProfit)}` : '-';
+                    document.getElementById('profitRate').innerText = isAuthenticated ? `${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%` : '-';
+                    // Color coding (Korean: Red=Up, Blue=Down)
+                    const colorClass = profitRate >= 0 ? 'text-red-400' : 'text-blue-400';
+                    document.getElementById('totalProfit').className = `text-2xl font-bold ${colorClass}`;
+                    document.getElementById('profitRate').className = `text-sm font-medium ${colorClass} mt-1`;
+                }
+
+
+                // Daily Profit Chart
+                // Daily Profit/Return Chart
+                const ctxProfit = document.getElementById('dailyProfitChart').getContext('2d');
+                // For guests, use 'daily_return' (percentage) instead of 'daily_profit' (amount)
+                const valueKey = isAuthenticated ? 'daily_profit' : 'daily_return';
+                const profitData = data.daily_returns.map(d => d[valueKey]);
+                const profitColors = profitData.map(v => v >= 0 ? '#ef4444' : '#3b82f6'); // Red for profit, Blue for loss
+                const chartLabel = isAuthenticated ? 'Daily Profit (KRW)' : 'Daily Return (%)';
+
+                if (dailyProfitChartInstance) {
+                    dailyProfitChartInstance.destroy();
+                }
+
+                dailyProfitChartInstance = new Chart(ctxProfit, {
+                    type: 'bar',
+                    data: {
+                        labels: data.daily_returns.map(d => d.date),
+                        datasets: [{
+                            label: chartLabel,
+                            data: profitData,
+                            backgroundColor: profitColors,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (context) {
+                                        const val = context.parsed.y;
+                                        if (isAuthenticated) {
+                                            return `Profit: ₩${formatKRW(val)}`;
+                                        } else {
+                                            return `Return: ${val.toFixed(2)}%`;
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                grid: {
+                                    color: '#374151'
+                                },
+                                ticks: {
+                                    color: '#9ca3af',
+                                    callback: function (value) {
+                                        if (isAuthenticated) {
+                                            return '₩' + formatKRW(value);
+                                        } else {
+                                            return value.toFixed(1) + '%';
+                                        }
+                                    }
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: '#9ca3af'
+                                }
+                            }
+                        }
+                    }
+                });
+
+
+                // MDD Chart
+                const ctxMdd = document.getElementById('mddChart').getContext('2d');
+                new Chart(ctxMdd, {
+                    type: 'line',
+                    data: {
+                        labels: data.mdd_history.map(d => d.date),
+                        datasets: [{
+                            label: 'Drawdown',
+                            data: data.mdd_history.map(d => d.drawdown),
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    label: function (context) {
+                                        return `Drawdown: ${context.parsed.y.toFixed(2)}%`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { display: false },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
+
+                // 3. Monthly Heatmap
+                const heatmapContainer = document.getElementById('monthlyHeatmap');
+                let heatmapHtml = '';
+
+                data.monthly_returns.forEach(m => {
+                    const isPos = m.return >= 0;
+                    const colorClass = isPos ? 'text-red-400' : 'text-blue-400';
+                    const bgClass = isPos ? 'bg-red-500/10 border-red-500/20' : 'bg-blue-500/10 border-blue-500/20';
+                    const sign = isPos ? '+' : '';
+
+                    heatmapHtml += `
+                        <div class="rounded-lg border ${bgClass} p-3 flex flex-col items-center justify-center transition-transform hover:scale-105 cursor-pointer" onclick="openCalendarModal('${m.month}')">
+                            <span class="text-xs text-gray-400 mb-1">${m.month}</span>
+                            <span class="text-lg font-bold ${colorClass}">${sign}${m.return.toFixed(2)}%</span>
+                        </div>
+                    `;
+                });
+
+                if (data.monthly_returns.length === 0) {
+                    heatmapHtml = '<div class="text-center text-gray-500 py-4 col-span-full">No monthly data available</div>';
+                }
+
+                heatmapContainer.innerHTML = heatmapHtml;
+
+            } catch (e) {
+                console.error("Failed to load analytics", e);
+            }
+        }
+
+        loadAssetChart();
+        loadStockPerformance();
+        loadOrderHistory();
+        loadAnalytics();
+        // Recommendations
+        // Recommendation Date Picker Logic
+        let availableRecDates = new Set();
+        let currentRecCalendarDate = new Date();
+
+        async function loadRecommendationDates() {
+            try {
+                const response = await fetch('/api/recommendations/dates');
+                const dates = await response.json();
+
+                availableRecDates = new Set(dates); // Store as Set for O(1) lookup: "YYYYMMDD"
+
+                // Auto-select latest date if available and not yet selected
+                if (dates.length > 0) {
+                    const latestDate = dates[0];
+                    const formatted = `${latestDate.substring(0, 4)}-${latestDate.substring(4, 6)}-${latestDate.substring(6, 8)}`;
+
+                    // Only load if we haven't loaded anything yet or if it's the initial load
+                    const btnText = document.getElementById('recommendationDateText');
+                    if (btnText.innerText === 'Select Date') {
+                        selectRecommendationDate(latestDate);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load recommendation dates", e);
+            }
+        }
+
+        function openRecommendationDateModal() {
+            const modal = document.getElementById('recommendationDateModal');
+            const content = document.getElementById('recDateModalContent');
+
+            renderRecCalendar();
+
+            modal.classList.remove('hidden');
+            void modal.offsetWidth;
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+        }
+
+        function closeRecDateModal() {
+            const modal = document.getElementById('recommendationDateModal');
+            const content = document.getElementById('recDateModalContent');
+
+            modal.classList.add('opacity-0');
+            content.classList.add('scale-95');
+
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // Close on backdrop click
+        document.getElementById('recommendationDateModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('recommendationDateModal')) closeRecDateModal();
+        });
+
+        function changeRecCalendarMonth(delta) {
+            currentRecCalendarDate.setMonth(currentRecCalendarDate.getMonth() + delta);
+            renderRecCalendar();
+        }
+
+        function renderRecCalendar() {
+            const year = currentRecCalendarDate.getFullYear();
+            const month = currentRecCalendarDate.getMonth();
+
+            // Update Title
+            const monthNames = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ];
+            document.getElementById('recCalendarTitle').innerText = `${monthNames[month]} ${year}`;
+
+            const grid = document.getElementById('recCalendarGrid');
+            // Remove old days (keep headers which are first 7 children)
+            while (grid.children.length > 7) {
+                grid.removeChild(grid.lastChild);
+            }
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startDayOfWeek = firstDay.getDay();
+
+            // Empty cells
+            for (let i = 0; i < startDayOfWeek; i++) {
+                const div = document.createElement('div');
+                grid.appendChild(div);
+            }
+
+            // Days
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}${String(month + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+                const isAvailable = availableRecDates.has(dateStr);
+
+                const btn = document.createElement('button');
+                btn.className = `w-8 h-8 rounded-full text-sm flex items-center justify-center mx-auto transition-colors ${isAvailable
+                    ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white font-bold cursor-pointer'
+                    : 'text-gray-600 cursor-default'
+                    }`;
+                btn.innerText = d;
+
+                if (isAvailable) {
+                    btn.onclick = () => selectRecommendationDate(dateStr);
+                }
+
+                grid.appendChild(btn);
+            }
+        }
+
+        function selectRecommendationDate(dateStr) {
+            // dateStr: YYYYMMDD
+            const formatted = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+            document.getElementById('recommendationDateText').innerText = formatted;
+
+            loadRecommendations(dateStr);
+            closeRecDateModal();
+        }
+
+        async function loadRecommendations(date) {
+            if (!date) return;
+
+            try {
+                const response = await fetch(`/api/recommendations/${date}`);
+                const data = await response.json();
+
+                const tbody = document.getElementById('recommendationsTableBody');
+                let html = '';
+
+                data.forEach((rec, index) => {
+                    const row = `
+                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                            <td class="px-4 py-3 font-medium text-white">${index + 1}</td>
+                            <td class="px-4 py-3 font-mono text-gray-300">${rec.단축코드}</td>
+                            <td class="px-4 py-3 text-white font-medium">${rec.한글명}</td>
+                            <td class="px-4 py-3 text-right hidden sm:table-cell">${rec.rank_value}</td>
+                            <td class="px-4 py-3 text-right hidden sm:table-cell">${rec.rank_momentum}</td>
+                            <td class="px-4 py-3 text-right hidden sm:table-cell">${rec.rank_quality}</td>
+                            <td class="px-4 py-3 text-right font-bold text-blue-400 hidden sm:table-cell">${rec.rank_total}</td>
+                        </tr>
+                    `;
+                    html += row;
+                });
+
+                if (data.length === 0) {
+                    html = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No recommendations found for this date.</td></tr>';
+                }
+
+                tbody.innerHTML = html;
+
+            } catch (e) {
+                console.error("Failed to load recommendations", e);
+            }
+        }
+    </script>
+</body>
+
+</html>

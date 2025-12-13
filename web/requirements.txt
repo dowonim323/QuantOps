@@ -1,0 +1,12 @@
+flask
+gunicorn
+pandas
+numpy
+tqdm
+requests
+websocket-client
+colorlog
+cryptography
+fake-useragent
+flask-login
+python-dotenv

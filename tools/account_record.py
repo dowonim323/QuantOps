@@ -1,0 +1,258 @@
+import sqlite3
+from datetime import date
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_DIR = BASE_DIR / "db" / "account"
+DB_PATH = DB_DIR / "daily_assets.db"
+
+def _init_db():
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_PATH, timeout=30.0) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_assets (
+                date TEXT PRIMARY KEY,
+                initial_asset REAL,
+                final_asset REAL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_orders (
+                order_number TEXT PRIMARY KEY,
+                date TEXT,
+                time TEXT,
+                type TEXT,
+                name TEXT,
+                qty INTEGER,
+                executed_qty INTEGER,
+                price REAL,
+                status TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_stock_performance (
+                date TEXT,
+                symbol TEXT,
+                name TEXT,
+                invested_amount REAL,
+                current_value REAL,
+                realized_profit REAL,
+                sell_amount REAL DEFAULT 0.0,
+                quantity INTEGER DEFAULT 0,
+                PRIMARY KEY (date, symbol)
+            )
+        """)
+
+        # Add sell_amount column if not exists (migration)
+        try:
+            conn.execute("ALTER TABLE daily_stock_performance ADD COLUMN sell_amount REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass # Column likely already exists
+
+        # Add quantity column if not exists (migration)
+        try:
+            conn.execute("ALTER TABLE daily_stock_performance ADD COLUMN quantity INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
+        # Add deposit_d2 column to daily_assets if not exists (migration)
+        try:
+            conn.execute("ALTER TABLE daily_assets ADD COLUMN deposit_d2 REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass
+
+        # Add transfer_amount column to daily_assets if not exists (migration)
+        try:
+            conn.execute("ALTER TABLE daily_assets ADD COLUMN transfer_amount REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass
+            
+def get_db_connection():
+    return sqlite3.connect(DB_PATH, timeout=30.0)
+
+
+def get_daily_asset(target_date: date | None = None) -> tuple[float | None, float | None, float]:
+    """
+    특정 날짜의 (장초 평가금, 장후 평가금, 입출금액)을 반환합니다.
+    날짜가 없으면 오늘 날짜를 사용합니다.
+    """
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "SELECT initial_asset, final_asset, transfer_amount FROM daily_assets WHERE date = ?",
+            (target_date.strftime("%Y-%m-%d"),)
+        )
+        row = cursor.fetchone()
+        
+    if row:
+        return row[0], row[1], (row[2] or 0.0)
+    return None, None, 0.0
+
+def save_initial_asset(asset_value: float, deposit_d2: float = 0.0, transfer_amount: float = 0.0, target_date: date | None = None):
+    """
+    Save the initial asset value for the day.
+    If a record already exists for the date, it updates the initial_asset.
+    """
+    if target_date is None:
+        target_date = date.today()
+    
+    _init_db()
+    date_str = target_date.strftime("%Y-%m-%d")
+    
+    with get_db_connection() as conn:
+        conn.execute("""
+            INSERT INTO daily_assets (date, initial_asset, deposit_d2, transfer_amount)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                initial_asset = excluded.initial_asset,
+                deposit_d2 = excluded.deposit_d2,
+                transfer_amount = excluded.transfer_amount
+        """, (date_str, asset_value, deposit_d2, transfer_amount))
+
+def save_final_asset(asset_value: float, deposit_d2: float = 0.0, target_date: date | None = None):
+    """
+    Save the final asset value for the day.
+    If a record already exists for the date, it updates the final_asset.
+    """
+    if target_date is None:
+        target_date = date.today()
+    
+    _init_db()
+    date_str = target_date.strftime("%Y-%m-%d")
+    
+    with get_db_connection() as conn:
+        conn.execute("""
+            INSERT INTO daily_assets (date, final_asset, deposit_d2)
+            VALUES (?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                final_asset = excluded.final_asset,
+                deposit_d2 = excluded.deposit_d2
+        """, (date_str, asset_value, deposit_d2))
+
+def save_daily_orders(orders: list[dict], target_date: date | None = None) -> None:
+    """
+    일별 주문 내역을 저장합니다.
+    orders: dict 리스트 (order_number, time, type, name, qty, executed_qty, price, status)
+    """
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    date_str = target_date.strftime("%Y-%m-%d")
+    
+    with get_db_connection() as conn:
+        for order in orders:
+            conn.execute("""
+                INSERT INTO daily_orders (order_number, date, time, type, name, qty, executed_qty, price, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(order_number) DO UPDATE SET
+                    executed_qty = excluded.executed_qty,
+                    status = excluded.status
+            """, (
+                order["order_number"],
+                date_str,
+                order["time"],
+                order["type"],
+                order["name"],
+                order["qty"],
+                order["executed_qty"],
+                order["price"],
+                order["status"]
+            ))
+
+def get_previous_final_asset(target_date: date | None = None) -> tuple[float | None, float | None]:
+    """
+    target_date 이전의 가장 최근 (final_asset, deposit_d2)를 반환합니다.
+    """
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "SELECT final_asset, deposit_d2 FROM daily_assets WHERE date < ? ORDER BY date DESC LIMIT 1",
+            (target_date.strftime("%Y-%m-%d"),)
+        )
+        row = cursor.fetchone()
+        
+    if row:
+        return row[0], (row[1] or 0.0)
+    return None, None
+
+def save_stock_performance(performances: list[dict], target_date: date | None = None) -> None:
+    """
+    일별 종목 성과를 저장합니다.
+    performances: dict 리스트 (symbol, name, invested_amount, current_value, realized_profit)
+    """
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    date_str = target_date.strftime("%Y-%m-%d")
+    
+    with get_db_connection() as conn:
+        for perf in performances:
+            conn.execute("""
+                INSERT INTO daily_stock_performance (date, symbol, name, invested_amount, current_value, realized_profit, sell_amount, quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date, symbol) DO UPDATE SET
+                    name = excluded.name,
+                    invested_amount = excluded.invested_amount,
+                    current_value = excluded.current_value,
+                    realized_profit = excluded.realized_profit,
+                    sell_amount = excluded.sell_amount,
+                    quantity = excluded.quantity
+            """, (
+                date_str,
+                perf["symbol"],
+                perf["name"],
+                perf["invested_amount"],
+                perf["current_value"],
+                perf["realized_profit"],
+                perf.get("sell_amount", 0.0),
+                perf.get("quantity", 0)
+            ))
+
+def get_latest_stock_performance(target_date: date | None = None) -> dict[str, dict]:
+    """
+    target_date 이전의 가장 최근 종목별 성과를 반환합니다.
+    Returns: {symbol: {invested_amount, sell_amount, ...}}
+    """
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        # 가장 최근 날짜 찾기
+        cursor = conn.execute(
+            "SELECT MAX(date) FROM daily_stock_performance WHERE date < ?",
+            (target_date.strftime("%Y-%m-%d"),)
+        )
+        last_date = cursor.fetchone()[0]
+        
+        if not last_date:
+            return {}
+            
+        cursor = conn.execute(
+            "SELECT symbol, name, invested_amount, current_value, realized_profit, sell_amount FROM daily_stock_performance WHERE date = ?",
+            (last_date,)
+        )
+        
+        result = {}
+        for row in cursor.fetchall():
+            result[row[0]] = {
+                "symbol": row[0],
+                "name": row[1],
+                "invested_amount": row[2],
+                "current_value": row[3],
+                "realized_profit": row[4],
+                "sell_amount": row[5]
+            }
+            
+        return result
