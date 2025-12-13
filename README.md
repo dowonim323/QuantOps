@@ -35,6 +35,19 @@
 ### Prerequisites
 -   Docker & Docker Compose
 -   Korea Investment & Securities (KIS) API Keys
+-   Anaconda or Miniconda
+
+### Environment Setup (Conda)
+We recommend using a Conda environment named `quantops` to manage dependencies.
+
+```bash
+# Create and activate the environment
+conda create -n quantops python=3.10
+conda activate quantops
+
+# Install required packages
+pip install pandas numpy requests websocket-client flask flask-login python-dotenv werkzeug fake-useragent tqdm colorlog cryptography
+```
 
 ### Installation
 1.  **Clone the repository**:
