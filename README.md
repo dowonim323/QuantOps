@@ -1,76 +1,106 @@
-# QuantOps
+# 📈 QuantOps
+> **Automated Trading System for Korea Investment & Securities (KIS)**
 
-**QuantOps** is a comprehensive automated trading system designed for the Korean stock market (KIS). It integrates financial data crawling, quantitative stock selection, automated trading execution, and a web-based performance dashboard into a unified platform.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-2.0%2B-black?logo=flask&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## Features
+**QuantOps** is an all-in-one quantitative trading platform designed for the Korean stock market. It seamlessly integrates financial data acquisition, algorithmic stock selection, automated trade execution, and real-time performance monitoring into a unified, high-performance system.
 
-### 1. Financial Data Crawler
--   **Automated Collection**: Scrapes financial statements and market data.
--   **Data Processing**: Cleans and normalizes data for analysis.
+---
 
-### 2. Quantitative Stock Selection
--   **Algorithm**: Selects stocks based on predefined quantitative metrics (e.g., PER, PBR, ROE).
--   **Ranking**: Scores and ranks stocks to identify the best investment opportunities.
+## ✨ Key Features
 
-### 3. Automated Trading
--   **Execution**: Automatically executes buy/sell orders based on selection results.
--   **Risk Management**: Implements position sizing and stop-loss logic.
--   **Rebalancing**: Periodically rebalances the portfolio to maintain target allocations.
+### 🔍 Intelligent Data Crawler
+- **Automated Collection**: Scrapes comprehensive financial statements and market data.
+- **Data Normalization**: Cleans and processes raw data for accurate analysis.
 
-### 4. Web Dashboard
--   **Performance Monitoring**: Visualizes total assets, returns, and daily profit/loss.
--   **Portfolio View**: Displays current holdings, asset allocation, and detailed metrics.
--   **History**: Tracks all order executions and trading history.
--   **Secure Access**: Password-protected login for sensitive data, with a guest mode for public sharing.
+### 📊 Quantitative Strategy
+- **Algorithmic Selection**: Filters stocks based on advanced metrics (PER, PBR, ROE, etc.).
+- **Scoring System**: Ranks potential investments to identify top-tier opportunities.
 
-## Tech Stack
--   **Language**: Python 3.10+
--   **Web Framework**: Flask
--   **Database**: SQLite
--   **Frontend**: HTML5, TailwindCSS, Chart.js
--   **Deployment**: Docker & Docker Compose
+### 🤖 Automated Trading Bot
+- **Smart Execution**: Auto-executes buy/sell orders with precision.
+- **Risk Management**: Built-in position sizing and stop-loss mechanisms.
+- **Auto-Rebalancing**: Maintains optimal portfolio allocation automatically.
 
-## Getting Started
+### 🖥️ Professional Dashboard
+- **Real-time Monitoring**: Track total assets, daily returns, and profit/loss at a glance.
+- **Portfolio Analytics**: Visual breakdown of holdings and asset allocation.
+- **Secure Access**: Password-protected interface with a guest mode for safe sharing.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Core**: Python 3.10
+- **Web**: Flask, Gunicorn
+- **Frontend**: HTML5, TailwindCSS, Chart.js
+- **Database**: SQLite
+- **Infrastructure**: Docker, Docker Compose
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
--   Docker & Docker Compose
--   Korea Investment & Securities (KIS) API Keys
--   Anaconda or Miniconda
+- **Docker** & **Docker Compose** installed.
+- **KIS API Keys** (Korea Investment & Securities).
+- **Anaconda** or **Miniconda** (recommended for local development).
 
-### Environment Setup (Conda)
-We recommend using a Conda environment named `quantops` to manage dependencies.
+### 🐍 Environment Setup (Conda)
+For local development, use the `quantops` environment:
 
 ```bash
-# Create and activate the environment
+# Create and activate environment
 conda create -n quantops python=3.10
 conda activate quantops
 
-# Install required packages
+# Install dependencies
 pip install pandas numpy requests websocket-client flask flask-login python-dotenv werkzeug fake-useragent tqdm colorlog cryptography
 ```
 
-### Installation
-1.  **Clone the repository**:
+### 📦 Installation & Deployment
+
+1.  **Clone the Repository**
     ```bash
-    git clone https://github.com/yourusername/QuantOps.git
+    git clone https://github.com/dowonim323/QuantOps.git
     cd QuantOps
     ```
 
-2.  **Setup Secrets**:
-    Create a `secrets/` directory and add your API keys (refer to `secrets/example.json` if available).
+2.  **Configure Secrets**
+    Create a `secrets/` directory and add your KIS API keys.
 
-3.  **Setup Password**:
+3.  **Set Dashboard Password**
     ```bash
     python web/set_password.py
     ```
 
-4.  **Run with Docker**:
+4.  **Launch with Docker**
     ```bash
     docker compose up -d --build
     ```
 
-5.  **Access Dashboard**:
-    Open `http://localhost:80` (or your configured port) in a browser.
+5.  **Access the Dashboard**
+    Open your browser and navigate to `http://localhost:80`.
 
-## License
-This project is licensed under the MIT License.
+---
+
+## 📂 Project Structure
+
+```
+QuantOps/
+├── 📂 pykis/               # KIS API Wrapper Library
+├── 📂 web/                 # Web Dashboard Application
+├── 📂 tools/               # Utility Scripts & Helpers
+├── 📄 financial_crawler.py # Financial Data Collection Script
+├── 📄 stock_selection.py   # Quantitative Selection Script
+├── 📄 autorebalance.py     # Automated Trading Script
+└── 📄 README.md            # Project Documentation
+```
+
+---
+
+## ⚠️ Disclaimer
+This software is for educational and research purposes only. **Trading stocks involves significant risk.** The developers are not responsible for any financial losses incurred while using this system. Use at your own risk.
