@@ -309,11 +309,16 @@ def get_market_signal(
                 raise ValueError("KOSDAQ 현재가를 가져올 수 없습니다.")
 
     # 3. 이동평균 계산 및 시그널 판별 함수
-    def is_safe(name, past_closes, current_price):
+    def analyze_index(name, past_closes, current_price):
         if len(past_closes) < 10:
             if verbose:
                 print(f"[{name}] 데이터 부족 (10일 미만): Unsafe")
-            return False
+            return {
+                "safe": False,
+                "current": current_price,
+                "ma3": 0.0, "ma5": 0.0, "ma10": 0.0,
+                "reason": "Insufficient data"
+            }
 
         closes = past_closes
         
@@ -340,21 +345,34 @@ def get_market_signal(
             print(f"  MA3: {ma3_threshold:.2f}, MA5: {ma5_threshold:.2f}, MA10: {ma10_threshold:.2f}")
             print(f"  Result: {status} ({reason})")
             
-        return safe
+        return {
+            "safe": safe,
+            "current": current_price,
+            "ma3": ma3_threshold,
+            "ma5": ma5_threshold,
+            "ma10": ma10_threshold,
+            "reason": reason
+        }
 
-    kospi_safe = is_safe("KOSPI", kospi_history, kospi_current)
-    kosdaq_safe = is_safe("KOSDAQ", kosdaq_history, kosdaq_current)
+    kospi_analysis = analyze_index("KOSPI", kospi_history, kospi_current)
+    kosdaq_analysis = analyze_index("KOSDAQ", kosdaq_history, kosdaq_current)
 
     # 4. 결합 시그널
-    if kospi_safe and kosdaq_safe:
+    if kospi_analysis["safe"] and kosdaq_analysis["safe"]:
         signal = "buy"
     else:
         signal = "sell"
         
     if verbose:
-        print(f"[Final Signal] {signal.upper()} (KOSPI: {'Safe' if kospi_safe else 'Unsafe'}, KOSDAQ: {'Safe' if kosdaq_safe else 'Unsafe'})")
+        print(f"[Final Signal] {signal.upper()} (KOSPI: {'Safe' if kospi_analysis['safe'] else 'Unsafe'}, KOSDAQ: {'Safe' if kosdaq_analysis['safe'] else 'Unsafe'})")
         
-    return signal
+    return {
+        "signal": signal,
+        "details": {
+            "KOSPI": kospi_analysis,
+            "KOSDAQ": kosdaq_analysis
+        }
+    }
 
 
 def is_today_open_day(kis: "PyKis") -> bool:

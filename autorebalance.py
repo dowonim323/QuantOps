@@ -366,17 +366,21 @@ def main():
             send_notification("trade_execution", msg, title="Incomplete State Resolution", tags=("wrench",))
             
             # 시그널 확인
-            signal = get_market_signal(
+            signal_data = get_market_signal(
                 kis, 
                 kospi_current=monitor.prices["KOSPI"],
                 kosdaq_current=monitor.prices["KOSDAQ"],
                 historical_data=historical_indices,
                 verbose=True
             )
+            signal = signal_data["signal"]
+            details = signal_data["details"]
             logger.info(f"Resolution Signal: {signal}")
             
             if signal == "buy":
-                logger.info("Signal is BUY. Executing rebalance to fill position...")
+                kospi_reason = details["KOSPI"]["reason"]
+                kosdaq_reason = details["KOSDAQ"]["reason"]
+                logger.info(f"Signal is BUY (KOSPI: {kospi_reason}, KOSDAQ: {kosdaq_reason}). Executing rebalance to fill position...")
                 df_selection = load_stock_selection(kis=kis)
                 if df_selection.empty:
                     logger.info("No stocks selected. Skipping buy.")
@@ -393,7 +397,9 @@ def main():
                     )
                     
             elif signal == "sell":
-                logger.info("Signal is SELL. Executing sell_all to clear position...")
+                kospi_reason = details["KOSPI"]["reason"]
+                kosdaq_reason = details["KOSDAQ"]["reason"]
+                logger.info(f"Signal is SELL (KOSPI: {kospi_reason}, KOSDAQ: {kosdaq_reason}). Executing sell_all to clear position...")
                 execute_sell_all_safe(
                     kis, 
                     check_alive=lambda: monitor.is_active(timeout=MARKET_CHECK_TIMEOUT),
@@ -429,19 +435,23 @@ def main():
                 # state는 루프 진입 전의 값을 그대로 사용 (중복 조회 제거)
                 
                 # 캐시된 과거 데이터와 웹소켓 실시간 현재가 사용
-                signal = get_market_signal(
+                signal_data = get_market_signal(
                     kis, 
                     kospi_current=monitor.prices["KOSPI"],
                     kosdaq_current=monitor.prices["KOSDAQ"],
                     historical_data=historical_indices,
                     verbose=True
                 )
+                signal = signal_data["signal"]
+                details = signal_data["details"]
                 logger.info(f"State: {state}, Signal: {signal}")
                 
                 trade_executed = False
 
                 if state == "CASH" and signal == "buy":
-                    msg = "Action: BUY (Cash -> Stock)\nStarting rebalance..."
+                    kospi_reason = details["KOSPI"]["reason"]
+                    kosdaq_reason = details["KOSDAQ"]["reason"]
+                    msg = f"Action: BUY (Cash -> Stock)\nIndices: KOSPI[{kospi_reason}], KOSDAQ[{kosdaq_reason}]\nStarting rebalance..."
                     logger.info(msg)
                     send_notification("trade_execution", msg, title="Trade Action Triggered", tags=("rocket",))
                     
@@ -465,7 +475,9 @@ def main():
                             logger.warning("Rebalance failed (likely due to error). Will retry next loop.")
 
                 elif state == "STOCK" and signal == "sell":
-                    msg = "Action: SELL (Stock -> Cash)\nSelling all holdings..."
+                    kospi_reason = details["KOSPI"]["reason"]
+                    kosdaq_reason = details["KOSDAQ"]["reason"]
+                    msg = f"Action: SELL (Stock -> Cash)\nIndices: KOSPI[{kospi_reason}], KOSDAQ[{kosdaq_reason}]\nSelling all holdings..."
                     logger.info(msg)
                     send_notification("trade_execution", msg, title="Trade Action Triggered", tags=("chart_with_downwards_trend",))
                     

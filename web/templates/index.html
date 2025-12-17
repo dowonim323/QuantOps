@@ -38,13 +38,18 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
+
+        .glass-effect {
+            background: rgba(17, 24, 39, 0.95);
+            backdrop-filter: blur(10px);
+        }
     </style>
 </head>
 
 <body class="bg-gray-950 text-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-8 max-w-7xl">
         <!-- Header -->
-        <nav class="glass-effect border-b border-gray-800 px-6 py-4 sticky top-0 z-50 mb-8 rounded-xl">
+        <nav class="glass-effect border-b border-gray-800 px-6 py-4 mb-8 rounded-xl">
             <div class="flex justify-between items-center">
                 <div class="flex items-center gap-3">
                     <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-500/20">
@@ -85,10 +90,41 @@
             </div>
 
             <!-- Mobile Menu (Hidden by default) -->
-            <div id="nav-menu" class="hidden sm:hidden mt-4 space-y-2 pb-2">
-                <!-- Mobile menu items will be handled by the existing nav-menu logic below if adapted, 
-                     but currently the nav-menu ID is used for the main tabs. 
-                     Let's keep the main tabs separate and just fix the header structure first. -->
+            <!-- Mobile Menu (Hidden by default) -->
+            <div id="mobile-menu" class="hidden sm:hidden mt-4 space-y-2 pb-2 border-t border-gray-800 pt-4">
+                <div class="flex flex-col space-y-2">
+                    <button onclick="switchTab('dashboard'); toggleMobileMenu()"
+                        class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                        Dashboard
+                    </button>
+                    <button onclick="switchTab('portfolio'); toggleMobileMenu()"
+                        class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                        Portfolio
+                    </button>
+                    <button onclick="switchTab('history'); toggleMobileMenu()"
+                        class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                        History
+                    </button>
+                    <button onclick="switchTab('analytics'); toggleMobileMenu()"
+                        class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                        Analytics
+                    </button>
+                    <button onclick="switchTab('recommendations'); toggleMobileMenu()"
+                        class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                        Recommendations
+                    </button>
+                </div>
+
+                <div class="border-t border-gray-800 pt-4 mt-2 px-4 flex justify-between items-center">
+                    <span
+                        class="px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20">
+                        System Active
+                    </span>
+                    <button id="mobileAuthButton" onclick="openLoginModal()"
+                        class="px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs font-medium border border-gray-700 hover:bg-gray-700 hover:text-white transition-colors">
+                        Login
+                    </button>
+                </div>
             </div>
         </nav>
 
@@ -518,7 +554,7 @@
     <script>
         // Mobile Menu Toggle
         function toggleMobileMenu() {
-            const menu = document.getElementById('nav-menu');
+            const menu = document.getElementById('mobile-menu');
             menu.classList.toggle('hidden');
         }
 
@@ -544,17 +580,24 @@
 
         function updateAuthUI() {
             const btn = document.getElementById('authButton');
-            if (btn) { // Check if button exists before trying to update it
-                if (isAuthenticated) {
-                    btn.innerText = 'Logout';
-                    btn.onclick = logout;
-                    btn.className = "px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/20 hover:bg-red-500/20 transition-colors";
-                } else {
-                    btn.innerText = 'Login';
-                    btn.onclick = openLoginModal;
-                    btn.className = "px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs font-medium border border-gray-700 hover:bg-gray-700 hover:text-white transition-colors";
+            const mobileBtn = document.getElementById('mobileAuthButton');
+
+            const updateButton = (button) => {
+                if (button) {
+                    if (isAuthenticated) {
+                        button.innerText = 'Logout';
+                        button.onclick = logout;
+                        button.className = "px-3 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/20 hover:bg-red-500/20 transition-colors";
+                    } else {
+                        button.innerText = 'Login';
+                        button.onclick = openLoginModal;
+                        button.className = "px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs font-medium border border-gray-700 hover:bg-gray-700 hover:text-white transition-colors";
+                    }
                 }
-            }
+            };
+
+            updateButton(btn);
+            updateButton(mobileBtn);
 
             const assetBtn = document.getElementById('btn-mode-asset');
 
