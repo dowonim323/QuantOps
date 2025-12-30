@@ -208,7 +208,7 @@ def fetch_historical_indices(kis: "PyKis") -> dict[str, list[float]]:
     start_date = today - timedelta(days=60)
 
     result = {}
-    for name in ["KOSPI", "KOSDAQ"]:
+    for name in ["KOSDAQ"]:
         def _fetch():
             return kis.domestic_index_daily_chart(name, start=start_date, end=today)
 
@@ -267,7 +267,6 @@ def fetch_current_index_prices(
 
 def get_market_signal(
     kis: "PyKis",
-    kospi_current: float | None = None,
     kosdaq_current: float | None = None,
     historical_data: dict[str, list[float]] | None = None,
     verbose: bool = False,
@@ -277,7 +276,6 @@ def get_market_signal(
 
     Args:
         kis (PyKis): PyKis 인스턴스
-        kospi_current (float, optional): 현재 KOSPI 지수. 없으면 조회합니다.
         kosdaq_current (float, optional): 현재 KOSDAQ 지수. 없으면 조회합니다.
         historical_data (dict, optional): fetch_historical_indices로 가져온 과거 데이터. 없으면 새로 조회합니다.
         verbose (bool, optional): 상세 정보 출력 여부. Defaults to False.
@@ -286,20 +284,12 @@ def get_market_signal(
     if historical_data is None:
         historical_data = fetch_historical_indices(kis)
     
-    kospi_history = historical_data.get("KOSPI", [])
     kosdaq_history = historical_data.get("KOSDAQ", [])
 
     # 2. 현재가 확인 (인자가 없으면 REST API로 조회 - 비효율적이지만 fallback)
-    if kospi_current is None or kosdaq_current is None:
+    if kosdaq_current is None:
         from datetime import date
         today = date.today()
-        # 현재가 조회를 위해 차트 요청 (비효율적)
-        if kospi_current is None:
-            chart = kis.domestic_index_daily_chart("KOSPI", start=today, end=today)
-            if chart.bars:
-                kospi_current = float(chart.bars[-1].close)
-            else:
-                raise ValueError("KOSPI 현재가를 가져올 수 없습니다.")
         
         if kosdaq_current is None:
             chart = kis.domestic_index_daily_chart("KOSDAQ", start=today, end=today)
@@ -354,22 +344,22 @@ def get_market_signal(
             "reason": reason
         }
 
-    kospi_analysis = analyze_index("KOSPI", kospi_history, kospi_current)
+    kosdaq_analysis = analyze_index("KOSDAQ", kosdaq_history, kosdaq_current)
     kosdaq_analysis = analyze_index("KOSDAQ", kosdaq_history, kosdaq_current)
 
-    # 4. 결합 시그널
-    if kospi_analysis["safe"] and kosdaq_analysis["safe"]:
+    # 4. 결합 시그널 (KOSDAQ Only)
+    # 소형주 위주의 포트폴리오이므로 KOSDAQ 지수를 활용하여 시그널 산출
+    if kosdaq_analysis["safe"]:
         signal = "buy"
     else:
         signal = "sell"
         
     if verbose:
-        print(f"[Final Signal] {signal.upper()} (KOSPI: {'Safe' if kospi_analysis['safe'] else 'Unsafe'}, KOSDAQ: {'Safe' if kosdaq_analysis['safe'] else 'Unsafe'})")
+        print(f"[Final Signal] {signal.upper()} (Based on KOSDAQ: {'Safe' if kosdaq_analysis['safe'] else 'Unsafe'})")
         
     return {
         "signal": signal,
         "details": {
-            "KOSPI": kospi_analysis,
             "KOSDAQ": kosdaq_analysis
         }
     }

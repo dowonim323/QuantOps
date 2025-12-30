@@ -40,10 +40,10 @@ DEFAULT_NOTIFICATION_CHANNEL = "financial_crawling"
 def _resolve_max_workers(max_workers: int | None) -> int:
     """최대 워커 수를 결정합니다."""
     if max_workers is not None and max_workers > 0:
-        return max(1, min(max_workers, 16))
+        return max(1, min(max_workers, 8))
 
     logical_cores = os.cpu_count() or 1
-    return max(1, min(logical_cores, 16))
+    return max(1, min(logical_cores, 8))
 
 
 def _format_elapsed(seconds: float) -> str:
