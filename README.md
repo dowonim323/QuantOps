@@ -24,6 +24,8 @@
 - **Smart Execution**: Auto-executes buy/sell orders with precision.
 - **Risk Management**: Built-in position sizing and stop-loss mechanisms.
 - **Auto-Rebalancing**: Maintains optimal portfolio allocation automatically.
+- **Retry Logic**: Automatically retries unfilled orders when orderbook prices are unfavorable.
+- **Discord Notifications**: Real-time alerts for order status and unfilled orders.
 
 ### 🖥️ Professional Dashboard
 - **Real-time Monitoring**: Track total assets, daily returns, and profit/loss at a glance.

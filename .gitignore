@@ -1,6 +1,7 @@
 # Secrets and Environment Variables
 secrets/
 web/.env
+scheduler/.env
 .env
 *.key
 *.pem

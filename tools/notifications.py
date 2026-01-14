@@ -5,11 +5,15 @@ from typing import Iterable
 import requests
 import logging
 
-# Discord Webhook URLs
+# Discord Webhook URLs (loaded from environment variables for security)
+# Set these environment variables:
+#   DISCORD_WEBHOOK_FINANCIAL - for financial_crawling channel
+#   DISCORD_WEBHOOK_SELECTION - for stock_selection channel  
+#   DISCORD_WEBHOOK_TRADE - for trade_execution channel
 WEBHOOK_URLS = {
-    "financial_crawling": "https://discordapp.com/api/webhooks/1447250119933296752/rdyWhx0s5xXFxFqyvjE6jWcRemD7MbGzK6jOdfn0r_AH41S_bvqhyanTjdwcBIh9vhnw",
-    "stock_selection": "https://discordapp.com/api/webhooks/1447272865870385225/uJ8KSekjSe-JDZVSiGJKrA1lTep_ZjPPULeHbubSSivxCgMAovbBFtMECjCXs3c0Oaqc",
-    "trade_execution": "https://discordapp.com/api/webhooks/1447273280988905615/1dUG2fB3Q_rQCynCj78zUF2BDEa_OVg8h_vitXG3-7n6iWg9mOWvHJPtjTzQ8cnyzQnj",
+    "financial_crawling": os.environ.get("DISCORD_WEBHOOK_FINANCIAL", ""),
+    "stock_selection": os.environ.get("DISCORD_WEBHOOK_SELECTION", ""),
+    "trade_execution": os.environ.get("DISCORD_WEBHOOK_TRADE", ""),
 }
 
 logger = logging.getLogger(__name__)

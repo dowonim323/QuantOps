@@ -1,8 +1,9 @@
+import logging
 import os
 import threading
 import time
 from datetime import datetime
-from typing import Iterable, TYPE_CHECKING
+from typing import Any, Iterable, TYPE_CHECKING
 
 from pykis import (
     PyKis,
@@ -12,6 +13,8 @@ from pykis import (
 )
 
 from tools.notifications import send_notification
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pykis import PyKis
@@ -81,7 +84,7 @@ def wait_until_market_open(
         시장 개방이 감지된 시각
     """
     if verbose:
-        print(f"Waiting for market open... (indexes={indexes}, timeout={timeout}, interval={poll_interval})")
+        logger.info("Waiting for market open... (indexes=%s, timeout=%s, interval=%s)", indexes, timeout, poll_interval)
 
     while True:
         if check_market_open_by_indexes(
@@ -90,11 +93,11 @@ def wait_until_market_open(
             timeout=timeout,
         ):
             if verbose:
-                print("Market open detected!")
+                logger.info("Market open detected!")
             return datetime.now()
 
         if verbose:
-            print(f"Market not open yet. Retrying in {poll_interval}s...")
+            logger.info("Market not open yet. Retrying in %ss...", poll_interval)
 
         if poll_interval > 0:
             time.sleep(poll_interval)
@@ -117,7 +120,7 @@ def wait_until_market_close(
         시장 폐장이 감지된 시각
     """
     if verbose:
-        print(f"Waiting for market close... (indexes={indexes}, timeout={timeout}, interval={poll_interval})")
+        logger.info("Waiting for market close... (indexes=%s, timeout=%s, interval=%s)", indexes, timeout, poll_interval)
 
     while True:
         if not check_market_open_by_indexes(
@@ -126,11 +129,11 @@ def wait_until_market_close(
             timeout=timeout,
         ):
             if verbose:
-                print("Market close detected!")
+                logger.info("Market close detected!")
             return datetime.now()
 
         if verbose:
-            print(f"Market still open. Retrying in {poll_interval}s...")
+            logger.info("Market still open. Retrying in %ss...", poll_interval)
 
         if poll_interval > 0:
             time.sleep(poll_interval)
@@ -150,7 +153,7 @@ def wait_and_notify(
     poll_interval_close = float(os.environ.get("MARKET_CLOSE_POLL_INTERVAL", "60"))
 
     if verbose:
-        print(f"Starting wait_and_notify loop. Channel: {channel}")
+        logger.info("Starting wait_and_notify loop. Channel: %s", channel)
 
     # 장 시작 대기
     open_dt = wait_until_market_open(
@@ -164,7 +167,7 @@ def wait_and_notify(
     
     msg_open = f"Market is open based on {', '.join(indexes_tuple)}.\nDetected at: {open_time}"
     if verbose:
-        print(f"[Notification] {msg_open}")
+        logger.info("[Notification] %s", msg_open)
 
     send_notification(
         channel,
@@ -185,7 +188,7 @@ def wait_and_notify(
 
     msg_close = f"Market is closed based on {', '.join(indexes_tuple)}.\nDetected at: {close_time}"
     if verbose:
-        print(f"[Notification] {msg_close}")
+        logger.info("[Notification] %s", msg_close)
 
     send_notification(
         channel,
@@ -196,6 +199,52 @@ def wait_and_notify(
 
 
 from tools.trading_utils import retry_execution
+
+
+def get_previous_close_signal(kis: "PyKis") -> dict[str, Any]:
+    """
+    전일 종가 기준으로 시그널을 계산합니다.
+    (장 시작 전 SELL 조건 확인용)
+    """
+    from datetime import date, timedelta
+
+    today = date.today()
+    start_date = today - timedelta(days=60)
+
+    def _fetch():
+        return kis.domestic_index_daily_chart("KOSDAQ", start=start_date, end=today)
+
+    success, chart = retry_execution(_fetch, max_retries=10, context="Fetching KOSDAQ chart for previous close")
+
+    if not success or not chart:
+        return {"signal": None, "reason": "Failed to fetch data"}
+
+    past_closes = []
+    prev_close = None
+    for bar in chart.bars:
+        if bar.time.date() < today:
+            past_closes.append(float(bar.close))
+            prev_close = float(bar.close)
+
+    if len(past_closes) < 10 or prev_close is None:
+        return {"signal": None, "reason": "Insufficient data"}
+
+    ma3 = sum(past_closes[-3:]) / 3
+    ma5 = sum(past_closes[-5:]) / 5
+    ma10 = sum(past_closes[-10:]) / 10
+
+    safe = prev_close > ma3 or prev_close > ma5 or prev_close > ma10
+    signal = "buy" if safe else "sell"
+
+    return {
+        "signal": signal,
+        "prev_close": prev_close,
+        "ma3": ma3,
+        "ma5": ma5,
+        "ma10": ma10,
+        "reason": f"PrevClose({prev_close:.2f}) vs MA3({ma3:.2f})/MA5({ma5:.2f})/MA10({ma10:.2f})"
+    }
+
 
 def fetch_historical_indices(kis: "PyKis") -> dict[str, list[float]]:
     """
@@ -215,7 +264,7 @@ def fetch_historical_indices(kis: "PyKis") -> dict[str, list[float]]:
         success, chart = retry_execution(_fetch, max_retries=10, context=f"Fetching {name} chart")
         
         if not success or not chart:
-            print(f"Failed to fetch historical data for {name}")
+            logger.warning("Failed to fetch historical data for %s", name)
             continue
 
         past_closes = []
@@ -270,7 +319,7 @@ def get_market_signal(
     kosdaq_current: float | None = None,
     historical_data: dict[str, list[float]] | None = None,
     verbose: bool = False,
-) -> str:
+) -> dict[str, Any]:
     """
     현재 시장 상태를 분석하여 매수/매도 시그널을 반환합니다.
 
@@ -302,7 +351,7 @@ def get_market_signal(
     def analyze_index(name, past_closes, current_price):
         if len(past_closes) < 10:
             if verbose:
-                print(f"[{name}] 데이터 부족 (10일 미만): Unsafe")
+                logger.info("[%s] 데이터 부족 (10일 미만): Unsafe", name)
             return {
                 "safe": False,
                 "current": current_price,
@@ -331,9 +380,9 @@ def get_market_signal(
             
         if verbose:
             status = "Safe" if safe else "Unsafe"
-            print(f"[{name}] Current: {current_price:.2f}")
-            print(f"  MA3: {ma3_threshold:.2f}, MA5: {ma5_threshold:.2f}, MA10: {ma10_threshold:.2f}")
-            print(f"  Result: {status} ({reason})")
+            logger.info("[%s] Current: %.2f", name, current_price)
+            logger.info("  MA3: %.2f, MA5: %.2f, MA10: %.2f", ma3_threshold, ma5_threshold, ma10_threshold)
+            logger.info("  Result: %s (%s)", status, reason)
             
         return {
             "safe": safe,
@@ -345,7 +394,6 @@ def get_market_signal(
         }
 
     kosdaq_analysis = analyze_index("KOSDAQ", kosdaq_history, kosdaq_current)
-    kosdaq_analysis = analyze_index("KOSDAQ", kosdaq_history, kosdaq_current)
 
     # 4. 결합 시그널 (KOSDAQ Only)
     # 소형주 위주의 포트폴리오이므로 KOSDAQ 지수를 활용하여 시그널 산출
@@ -355,7 +403,7 @@ def get_market_signal(
         signal = "sell"
         
     if verbose:
-        print(f"[Final Signal] {signal.upper()} (Based on KOSDAQ: {'Safe' if kosdaq_analysis['safe'] else 'Unsafe'})")
+        logger.info("[Final Signal] %s (Based on KOSDAQ: %s)", signal.upper(), "Safe" if kosdaq_analysis["safe"] else "Unsafe")
         
     return {
         "signal": signal,
@@ -375,15 +423,15 @@ def is_today_open_day(kis: "PyKis") -> bool:
 
 
 class MarketMonitor:
-    def __init__(self):
-        self.prices = {"KOSPI": None, "KOSDAQ": None}
-        self.last_update = time.time()
+    def __init__(self) -> None:
+        self.prices: dict[str, float | None] = {"KOSPI": None, "KOSDAQ": None}
+        self.last_update: float = time.time()
     
-    def update(self, name, price):
+    def update(self, name: str, price: float) -> None:
         self.prices[name] = float(price)
         self.last_update = time.time()
         
-    def is_active(self, timeout=180):
+    def is_active(self, timeout: int | None = 180) -> bool:
         # 데이터가 있고, 마지막 업데이트가 timeout 이내인지 확인
         if self.prices["KOSPI"] is None or self.prices["KOSDAQ"] is None:
             return False

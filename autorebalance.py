@@ -7,7 +7,7 @@ from tools.logger import setup_logging
 from tools.market_watcher import (
     wait_until_market_open, wait_until_market_close, get_market_signal, 
     check_market_open_by_indexes, is_today_open_day, fetch_historical_indices,
-    MarketMonitor
+    MarketMonitor, get_previous_close_signal
 )
 from tools.trading_utils import (
     rebalance, sell_all, get_balance_safe, retry_execution,
@@ -201,7 +201,6 @@ def finalize_trading_day(kis: PyKis, initial_asset: float, transfer_amount: floa
         except Exception as e:
             logger.error(f"Error saving stock performance: {e}")
 
-        # 5. 최종 리포트 전송
         try:
             market_close_time = datetime.now().strftime("%H:%M:%S")
             msg = f"""
@@ -254,6 +253,10 @@ def main():
         logger.info("Fetching historical indices...")
         historical_indices = fetch_historical_indices(kis)
         logger.info("Historical indices loaded.")
+
+        prev_close_signal_data = get_previous_close_signal(kis)
+        prev_close_signal = prev_close_signal_data.get("signal")
+        logger.info(f"Previous close signal: {prev_close_signal} ({prev_close_signal_data.get('reason', 'N/A')})")
 
         # 2. 초기 상태 확인 (장 시작 전)
         # 웹소켓 세션 클린업 (이전 세션이 남아있을 경우를 대비)
@@ -355,8 +358,41 @@ def main():
             msg += f"\n(Net Transfer: {transfer_amount:+,.0f})"
         send_notification("trade_execution", msg, title="Market Open & Initial Asset", tags=("moneybag",))
 
-        # 6. 불완전 상태(Incomplete State) 확인 및 해결
-        # 주식 비중이 0% 초과 90% 이하인 경우, 이전 매매가 중단된 것으로 간주하고 즉시 신호에 따라 매매 수행
+        # 6. 장초 SELL 체크 (1회만 실행)
+        # 전일 종가 SELL + 당일 시가 SELL 조건 충족 시 즉시 매도
+        if state == "STOCK" and prev_close_signal == "sell":
+            opening_signal_data = get_market_signal(
+                kis,
+                kosdaq_current=monitor.prices["KOSDAQ"],
+                historical_data=historical_indices,
+                verbose=True
+            )
+            opening_signal = opening_signal_data["signal"]
+            
+            if opening_signal == "sell":
+                kosdaq_reason = opening_signal_data["details"]["KOSDAQ"]["reason"]
+                msg = f"Opening SELL confirmed (Prev Close: SELL, Opening: SELL)\nKOSDAQ: {kosdaq_reason}\nSelling all holdings..."
+                logger.info(msg)
+                send_notification("trade_execution", msg, title="Opening Sell Triggered", tags=("chart_with_downwards_trend",))
+                
+                if execute_sell_all_safe(
+                    kis,
+                    check_alive=lambda: monitor.is_active(timeout=MARKET_CHECK_TIMEOUT),
+                    context="Opening sell",
+                    order_timeout=ORDER_TIMEOUT,
+                    execution_timeout=EXECUTION_TIMEOUT
+                ):
+                    state = "CASH"
+                    logger.info("Opening sell completed. State changed to CASH.")
+            else:
+                logger.info(f"Prev close was SELL but opening signal is {opening_signal}. No sell executed.")
+        else:
+            if state == "STOCK":
+                logger.info(f"Prev close signal was {prev_close_signal}. Skipping opening sell check.")
+
+        # 7. 불완전 상태(Incomplete State) 확인 및 해결
+        # 주식 비중이 0% 초과 90% 이하인 경우, 이전 매매가 중단된 것으로 간주
+        balance = get_balance_safe(kis.account(), verbose=True)
         stock_value = sum(float(s.amount) for s in balance.stocks)
         stock_ratio = stock_value / initial_asset if initial_asset > 0 else 0.0
         
@@ -367,7 +403,6 @@ def main():
             logger.info(msg)
             send_notification("trade_execution", msg, title="Incomplete State Resolution", tags=("wrench",))
             
-            # 시그널 확인
             signal_data = get_market_signal(
                 kis, 
                 kosdaq_current=monitor.prices["KOSDAQ"],
@@ -379,7 +414,6 @@ def main():
             logger.info(f"Resolution Signal: {signal}")
             
             if signal == "buy":
-                # kospi_reason = details["KOSPI"]["reason"]
                 kosdaq_reason = details["KOSDAQ"]["reason"]
                 logger.info(f"Signal is BUY (KOSDAQ: {kosdaq_reason}). Executing rebalance to fill position...")
                 df_selection = load_stock_selection(kis=kis)
@@ -396,23 +430,9 @@ def main():
                         order_timeout=ORDER_TIMEOUT,
                         execution_timeout=EXECUTION_TIMEOUT
                     )
-                    
-            elif signal == "sell":
-                # kospi_reason = details["KOSPI"]["reason"]
-                kosdaq_reason = details["KOSDAQ"]["reason"]
-                logger.info(f"Signal is SELL (KOSDAQ: {kosdaq_reason}). Executing sell_all to clear position...")
-                execute_sell_all_safe(
-                    kis, 
-                    check_alive=lambda: monitor.is_active(timeout=MARKET_CHECK_TIMEOUT),
-                    context="Incomplete state resolution",
-                    order_timeout=ORDER_TIMEOUT,
-                    execution_timeout=EXECUTION_TIMEOUT
-                )
-            
             else:
-                logger.info(f"Signal is {signal}. No action taken for resolution.")
+                logger.info(f"Signal is {signal}. No action taken for resolution (SELL only at opening).")
             
-            # 불완전 상태 해결 후 상태 재확인 (중요)
             state, _ = get_account_state(kis)
             logger.info(f"State after resolution check: {state}")
             
@@ -466,7 +486,6 @@ def main():
 
                 if can_trade:
                     if state == "CASH" and signal == "buy":
-                        # kospi_reason = details["KOSPI"]["reason"]
                         kosdaq_reason = details["KOSDAQ"]["reason"]
                         msg = f"Action: BUY (Cash -> Stock)\nSignal: KOSDAQ[{kosdaq_reason}]\nStarting rebalance..."
                         logger.info(msg)
@@ -489,31 +508,10 @@ def main():
                                 action_taken = "BUY"
                                 daily_trade_count += 1
                                 last_trade_time = datetime.now()
-                                state = "STOCK" # Update state locally
+                                state = "STOCK"
                                 logger.info(f"Trade #{daily_trade_count} completed. Next trade allowed after {TRADE_INTERVAL_SECONDS}s.")
                             else:
                                 logger.warning("Rebalance failed (likely due to error). Will retry next loop.")
-
-                    elif state == "STOCK" and signal == "sell":
-                        # kospi_reason = details["KOSPI"]["reason"]
-                        kosdaq_reason = details["KOSDAQ"]["reason"]
-                        msg = f"Action: SELL (Stock -> Cash)\nSignal: KOSDAQ[{kosdaq_reason}]\nSelling all holdings..."
-                        logger.info(msg)
-                        send_notification("trade_execution", msg, title="Trade Action Triggered", tags=("chart_with_downwards_trend",))
-                        
-                        if execute_sell_all_safe(
-                            kis, 
-                            check_alive=lambda: monitor.is_active(timeout=MARKET_CHECK_TIMEOUT),
-                            context="Main loop",
-                            order_timeout=ORDER_TIMEOUT,
-                            execution_timeout=EXECUTION_TIMEOUT
-                        ):
-                            action_taken = "SELL"
-                            daily_trade_count += 1
-                            last_trade_time = datetime.now()
-                            state = "CASH" # Update state locally
-                            logger.info(f"Trade #{daily_trade_count} completed. Next trade allowed after {TRADE_INTERVAL_SECONDS}s.")
-                    
                     else:
                         logger.info(f"Action: HOLD (State: {state}, Signal: {signal})")
                 

@@ -1,0 +1,20 @@
+services:
+  scheduler:
+    container_name: quantops-scheduler
+    build:
+      context: ..
+      dockerfile: scheduler/Dockerfile
+    volumes:
+      - ../db:/app/db
+      - ../logs:/app/logs
+      - ../secrets:/app/secrets:ro
+      - ../codes:/app/codes
+    environment:
+      - PYTHONPATH=/app
+      - TZ=Asia/Seoul
+      - DISCORD_WEBHOOK_FINANCIAL=${DISCORD_WEBHOOK_FINANCIAL}
+      - DISCORD_WEBHOOK_SELECTION=${DISCORD_WEBHOOK_SELECTION}
+      - DISCORD_WEBHOOK_TRADE=${DISCORD_WEBHOOK_TRADE}
+    restart: unless-stopped
+    tty: true
+    stdin_open: true

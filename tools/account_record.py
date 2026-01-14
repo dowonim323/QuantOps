@@ -1,12 +1,22 @@
 import sqlite3
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_DIR = BASE_DIR / "db" / "account"
 DB_PATH = DB_DIR / "daily_assets.db"
 
-def _init_db():
+# Singleton flag to ensure DB is initialized only once per process
+_db_initialized: bool = False
+
+
+def _init_db() -> None:
+    """Initialize database tables. Called only once per process."""
+    global _db_initialized
+    if _db_initialized:
+        return
+
     DB_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH, timeout=30.0) as conn:
         conn.execute("""
@@ -66,7 +76,26 @@ def _init_db():
             conn.execute("ALTER TABLE daily_assets ADD COLUMN transfer_amount REAL DEFAULT 0.0")
         except sqlite3.OperationalError:
             pass
-            
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS unfilled_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                time TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                order_type TEXT NOT NULL,
+                unfilled_qty INTEGER,
+                current_value REAL,
+                target_value REAL,
+                context TEXT,
+                resolved INTEGER DEFAULT 0
+            )
+        """)
+
+    _db_initialized = True
+
+
 def get_db_connection():
     return sqlite3.connect(DB_PATH, timeout=30.0)
 
@@ -229,7 +258,6 @@ def get_latest_stock_performance(target_date: date | None = None) -> dict[str, d
     _init_db()
     
     with sqlite3.connect(DB_PATH) as conn:
-        # 가장 최근 날짜 찾기
         cursor = conn.execute(
             "SELECT MAX(date) FROM daily_stock_performance WHERE date < ?",
             (target_date.strftime("%Y-%m-%d"),)
@@ -256,3 +284,72 @@ def get_latest_stock_performance(target_date: date | None = None) -> dict[str, d
             }
             
         return result
+
+
+def save_unfilled_orders(
+    unfilled: dict[str, Any],
+    side: str,
+    order_type: str,
+    context: str = "",
+    target_date: date | None = None,
+) -> None:
+    from datetime import datetime
+    
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    date_str = target_date.strftime("%Y-%m-%d")
+    time_str = datetime.now().strftime("%H:%M:%S")
+    
+    with get_db_connection() as conn:
+        for symbol, info in unfilled.items():
+            if order_type == "qty":
+                unfilled_qty = int(info) if isinstance(info, (int, float)) else None
+                current_value = None
+                target_value = None
+            else:
+                unfilled_qty = None
+                current_value = info.get("current") if isinstance(info, dict) else None
+                target_value = info.get("target") if isinstance(info, dict) else None
+            
+            conn.execute("""
+                INSERT INTO unfilled_orders (date, time, symbol, side, order_type, unfilled_qty, current_value, target_value, context)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (date_str, time_str, symbol, side, order_type, unfilled_qty, current_value, target_value, context))
+
+
+def get_unresolved_unfilled_orders(target_date: date | None = None) -> list[dict]:
+    if target_date is None:
+        target_date = date.today()
+        
+    _init_db()
+    date_str = target_date.strftime("%Y-%m-%d")
+    
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "SELECT id, time, symbol, side, order_type, unfilled_qty, current_value, target_value, context FROM unfilled_orders WHERE date = ? AND resolved = 0",
+            (date_str,)
+        )
+        
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                "id": row[0],
+                "time": row[1],
+                "symbol": row[2],
+                "side": row[3],
+                "order_type": row[4],
+                "unfilled_qty": row[5],
+                "current_value": row[6],
+                "target_value": row[7],
+                "context": row[8],
+            })
+        
+        return results
+
+
+def mark_unfilled_order_resolved(order_id: int) -> None:
+    _init_db()
+    with get_db_connection() as conn:
+        conn.execute("UPDATE unfilled_orders SET resolved = 1 WHERE id = ?", (order_id,))

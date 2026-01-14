@@ -76,7 +76,11 @@ def get_assets():
     assets = conn.execute('SELECT * FROM daily_assets ORDER BY date').fetchall()
     conn.close()
     
-    data = [dict(row) for row in assets]
+    # Filter out incomplete days (where final_asset is None or 0)
+    data = []
+    for row in assets:
+        if row['final_asset'] is not None and row['final_asset'] > 0:
+            data.append(dict(row))
     
     # Calculate Cumulative Return
     cumulative_index = 1.0
@@ -117,7 +121,7 @@ def get_assets():
 def get_performance():
     conn = get_db_connection()
     perfs = conn.execute('SELECT * FROM daily_stock_performance ORDER BY date, symbol').fetchall()
-    assets = conn.execute('SELECT date, final_asset FROM daily_assets').fetchall()
+    assets = conn.execute('SELECT date, final_asset FROM daily_assets WHERE final_asset IS NOT NULL').fetchall()
     conn.close()
     
     asset_map = {row['date']: row['final_asset'] for row in assets}
@@ -193,11 +197,14 @@ def get_analytics():
     assets = conn.execute('SELECT * FROM daily_assets ORDER BY date ASC').fetchall()
     conn.close()
     
-    if not assets:
+    # Filter out incomplete days
+    data = []
+    for row in assets:
+        if row['final_asset'] is not None and row['final_asset'] > 0:
+            data.append(dict(row))
+    
+    if not data:
         return jsonify({})
-
-    # Convert to list of dicts
-    data = [dict(row) for row in assets]
     
     # Calculate Daily Returns
     for i in range(1, len(data)):

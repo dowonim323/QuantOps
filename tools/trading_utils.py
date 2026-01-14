@@ -7,14 +7,16 @@ import logging
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Literal, Mapping, TYPE_CHECKING
 
+COUNTRY_TYPE = Literal["KR", "US", "HK", "JP", "VN", "CN"]
+
 from pykis import (
-    KisEventTicket,
     KisEventTicket,
     KisRealtimeOrderbook,
     KisSubscriptionEventArgs,
     KisWebsocketClient,
 )
 from tools.notifications import send_notification
+from tools.account_record import save_unfilled_orders
 
 if TYPE_CHECKING:
     from pykis import PyKis
@@ -61,6 +63,48 @@ def _log_verbose(message: str, *, verbose: bool, **kwargs: Any) -> None:
         logger.info(message.format(**kwargs))
 
 
+def _notify_unfilled_orders(
+    unfilled: dict[str, Any],
+    *,
+    order_type: str = "qty",
+    context: str = "",
+) -> None:
+    """
+    미체결 주문 발생 시 Discord 알림을 전송합니다.
+    
+    Parameters
+    ----------
+    unfilled : dict
+        미체결 종목 정보. qty 타입: {symbol: qty}, value 타입: {symbol: {current, target}}
+    order_type : str
+        "qty" 또는 "value"
+    context : str
+        추가 컨텍스트 (예: "Step 1", "Sell All")
+    """
+    if not unfilled:
+        return
+    
+    try:
+        lines = []
+        for symbol, info in unfilled.items():
+            if order_type == "qty":
+                lines.append(f"  - {symbol}: {info}주 미체결")
+            else:
+                current = info.get("current", 0)
+                target = info.get("target", 0)
+                lines.append(f"  - {symbol}: 현재 {current:,.0f}원 / 목표 {target:,.0f}원")
+        
+        detail_str = "\n".join(lines)
+        msg = f"[타임아웃] {context}\n미체결 종목:\n{detail_str}"
+        
+        send_notification(
+            "trade_execution",
+            msg,
+            title="Order Timeout Warning",
+            tags=("warning",),
+        )
+    except Exception as e:
+        logger.error("Failed to send unfilled order notification: %s", e)
 
 
 
@@ -104,11 +148,11 @@ class RealtimeSubscriptionManager:
 
     def finalize(self) -> None:
         """남은 모든 구독을 해제합니다."""
-        for ticket in self.tickets.values():
+        for symbol, ticket in self.tickets.items():
             try:
                 ticket.unsubscribe()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to unsubscribe %s: %s", symbol, e)
 
     def complete(self, symbol: str, *, active: dict[str, Any], message: str) -> None:
         """특정 심볼에 대한 구독을 종료합니다."""
@@ -301,7 +345,7 @@ def get_balance_safe(
     account: "KisAccount", 
     max_retries: int = 10, 
     verbose: bool = False,
-    country: str | None = None
+    country: COUNTRY_TYPE | None = None
 ) -> Any:
     """
     account.balance()를 안전하게 호출합니다 (재시도 로직 포함).
@@ -339,7 +383,7 @@ def _process_qty_orders(
     side: OrderSide,
     max_fill_ratio: float,
     dry_run: bool,
-    timeout: float,
+    timeout: float | None,
     verbose: bool = False,
     check_alive: Callable[[], bool] | None = None,
     max_sub_retries: int = 10,
@@ -529,8 +573,9 @@ def _process_qty_orders(
         stock_obj, _ = stocks.get(symbol, (None, None))
         if stock_obj is None:
             continue
+        current_stock = stock_obj
         def subscribe():
-            ticket = stock_obj.on("orderbook", make_handler(symbol))
+            ticket = current_stock.on("orderbook", make_handler(symbol))
             manager.register(symbol, ticket)
 
         if not retry_execution(subscribe, max_sub_retries, f"{symbol} 호가 구독", verbose)[0]:
@@ -546,6 +591,16 @@ def _process_qty_orders(
     with manager.lock:
         if remaining:
             _log_verbose(_VerboseLog.TIMEOUT, verbose=verbose, payload=remaining)
+            _notify_unfilled_orders(remaining, order_type="qty", context=f"{side.upper()} qty orders")
+            save_unfilled_orders(remaining, side=side, order_type="qty", context=f"{side.upper()} qty orders")
+            for symbol, qty in remaining.items():
+                errors.append({
+                    "type": "unfilled",
+                    "symbol": symbol,
+                    "qty": qty,
+                    "side": side,
+                    "order_type": "qty",
+                })
 
     return orders, errors
 
@@ -557,7 +612,7 @@ def _process_value_orders(
     side: OrderSide,
     max_fill_ratio: float,
     dry_run: bool,
-    timeout: float,
+    timeout: float | None,
     verbose: bool = False,
     check_alive: Callable[[], bool] | None = None,
     max_sub_retries: int = 10,
@@ -847,7 +902,7 @@ def _process_value_orders(
         manager.finalize()
 
     with manager.lock:
-        if verbose and state:
+        if state:
             pending = {
                 symbol: {
                     "current": target["current_value"],
@@ -856,6 +911,17 @@ def _process_value_orders(
                 for symbol, target in state.items()
             }
             _log_verbose(_VerboseLog.TIMEOUT, verbose=verbose, payload=pending)
+            _notify_unfilled_orders(pending, order_type="value", context=f"{side.upper()} value orders")
+            save_unfilled_orders(pending, side=side, order_type="value", context=f"{side.upper()} value orders")
+            for symbol, target in state.items():
+                errors.append({
+                    "type": "unfilled",
+                    "symbol": symbol,
+                    "current_value": target["current_value"],
+                    "target_value": target["target_value"],
+                    "side": side,
+                    "order_type": "value",
+                })
 
     return orders, errors
 
@@ -871,7 +937,7 @@ def sell_qty(
     *,
     max_fill_ratio: float,
     dry_run: bool = False,
-    timeout: float = None,
+    timeout: float | None = None,
     verbose: bool = False,
     check_alive: Callable[[], bool] | None = None,
     max_sub_retries: int = 10,
@@ -918,7 +984,7 @@ def buy_qty(
     *,
     max_fill_ratio: float,
     dry_run: bool = False,
-    timeout: float = None,
+    timeout: float | None = None,
     verbose: bool = False,
     check_alive: Callable[[], bool] | None = None,
     max_sub_retries: int = 10,
@@ -948,7 +1014,7 @@ def sell_value(
     *,
     max_fill_ratio: float,
     dry_run: bool = False,
-    timeout: float = None,
+    timeout: float | None = None,
     verbose: bool = False,
     check_alive: Callable[[], bool] | None = None,
     max_sub_retries: int = 10,
@@ -985,7 +1051,7 @@ def buy_value(
     *,
     max_fill_ratio: float,
     dry_run: bool = False,
-    timeout: float = None,
+    timeout: float | None = None,
     verbose: bool = False,
     check_alive: Callable[[], bool] | None = None,
     max_sub_retries: int = 10,
@@ -1080,7 +1146,17 @@ def _execute_with_retry(
         all_orders.extend(orders)
         all_errors.extend(errors)
 
+        has_unfilled = any(e.get("type") == "unfilled" for e in errors)
+
         if not orders:
+            if has_unfilled and retries < max_retries - 1:
+                retries += 1
+                if verbose:
+                    _print_with_timestamp(
+                        f"{step_name}: 호가 부적합으로 주문 미생성, 재시도합니다. ({retries}/{max_retries})"
+                    )
+                time.sleep(1)
+                continue
             if verbose:
                 _print_with_timestamp(f"{step_name}: 주문이 생성되지 않았거나 대상이 없습니다.")
             break
@@ -1105,8 +1181,8 @@ def _execute_with_retry(
                     if _is_order_pending(order, max_retries=max_sub_retries):
                         try:
                             order.cancel()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to cancel order during market close: %s", e)
                 break
 
             retries += 1
@@ -1132,7 +1208,7 @@ def rebalance(
     cash_ratio: float,
     dry_run: bool = False,
     max_fill_ratio: float = 0.8,
-    order_timeout: float = None,
+    order_timeout: float | None = None,
     execution_timeout: float = 600.0,
     max_retries: int = 10,
     verbose: bool = False,
@@ -1322,10 +1398,10 @@ def rebalance(
 def sell_all(
     kis: "PyKis",
     *,
-    country: str | None = None,
+    country: COUNTRY_TYPE | None = None,
     dry_run: bool = False,
     max_fill_ratio: float = 0.8,
-    order_timeout: float = None,
+    order_timeout: float | None = None,
     execution_timeout: float = 600.0,
     max_retries: int = 10,
     verbose: bool = False,

@@ -1,0 +1,14 @@
+# Core dependencies
+pandas
+numpy
+tqdm
+requests
+websocket-client
+colorlog
+cryptography
+fake-useragent
+python-dotenv
+
+# Selenium for financial_crawler.py
+selenium
+webdriver-manager
