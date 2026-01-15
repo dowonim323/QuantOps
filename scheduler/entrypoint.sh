@@ -7,12 +7,16 @@ echo "Timezone: $(cat /etc/timezone)"
 echo "Current time: $(date)"
 echo "=========================================="
 
-# Pass environment variables to cron
 printenv | grep -v "no_proxy" >> /etc/environment
 
-# Start cron daemon in foreground
+if [ -n "$DISCORD_WEBHOOK_TRADE" ]; then
+    curl -s -X POST "$DISCORD_WEBHOOK_TRADE" \
+        -H "Content-Type: application/json" \
+        -d "{\"content\": \":rocket: **QuantOps Scheduler Started**\n\`\`\`Timezone: $(cat /etc/timezone)\nTime: $(date)\nHostname: $(hostname)\`\`\`\"}" \
+        || echo "Failed to send Discord notification"
+fi
+
 echo "Starting cron daemon..."
 cron -f &
 
-# Follow the cron log
 tail -f /var/log/cron.log
