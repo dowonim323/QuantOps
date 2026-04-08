@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipelines.autorebalance import _load_or_capture_initial_asset, run_account
+from pipelines.trading_session import _load_or_capture_initial_asset, run_account
 from tools.trading_profiles import AccountProfile, StrategyProfile
 
 
-class TestAutorebalanceStartup(unittest.TestCase):
+class TestTradingSessionStartup(unittest.TestCase):
     def setUp(self):
         self.account = AccountProfile(
             account_id="krx_vmq",
@@ -30,9 +30,9 @@ class TestAutorebalanceStartup(unittest.TestCase):
         kis = MagicMock()
 
         with patch(
-            "pipelines.autorebalance.get_daily_asset",
+            "pipelines.trading_session.get_daily_asset",
             return_value=(1_250_000.0, None, 50_000.0),
-        ), patch("pipelines.autorebalance.get_balance_safe") as balance_mock:
+        ), patch("pipelines.trading_session.get_balance_safe") as balance_mock:
             initial_asset, transfer_amount = _load_or_capture_initial_asset(
                 self.account,
                 kis,
@@ -51,15 +51,15 @@ class TestAutorebalanceStartup(unittest.TestCase):
         )
 
         with patch(
-            "pipelines.autorebalance.get_daily_asset",
+            "pipelines.trading_session.get_daily_asset",
             return_value=(None, None, 0.0),
         ), patch(
-            "pipelines.autorebalance.get_balance_safe",
+            "pipelines.trading_session.get_balance_safe",
             return_value=balance,
         ) as balance_mock, patch(
-            "pipelines.autorebalance.get_previous_final_asset",
+            "pipelines.trading_session.get_previous_final_asset",
             return_value=(1_100_000.0, 180_000.0),
-        ), patch("pipelines.autorebalance.save_initial_asset") as save_mock:
+        ), patch("pipelines.trading_session.save_initial_asset") as save_mock:
             initial_asset, transfer_amount = _load_or_capture_initial_asset(
                 self.account,
                 kis,
@@ -100,23 +100,23 @@ class TestAutorebalanceStartup(unittest.TestCase):
 
         monitor_mock.is_active.side_effect = monitor_is_active
 
-        with patch("pipelines.autorebalance.get_strategy_profile", return_value=self.strategy_profile), patch(
-            "pipelines.autorebalance.get_strategy_definition",
+        with patch("pipelines.trading_session.get_strategy_profile", return_value=self.strategy_profile), patch(
+            "pipelines.trading_session.get_strategy_definition",
             return_value=strategy_def,
-        ), patch("pipelines.autorebalance.resolve_secret_path") as secret_path_mock, patch(
-            "pipelines.autorebalance.KisAuth.load",
+        ), patch("pipelines.trading_session.resolve_secret_path") as secret_path_mock, patch(
+            "pipelines.trading_session.KisAuth.load",
             return_value=MagicMock(),
-        ), patch("pipelines.autorebalance.PyKis", return_value=kis), patch(
-            "pipelines.autorebalance.is_today_open_day",
+        ), patch("pipelines.trading_session.PyKis", return_value=kis), patch(
+            "pipelines.trading_session.is_today_open_day",
             return_value=True,
-        ), patch("pipelines.autorebalance._load_or_capture_initial_asset", side_effect=capture_initial_asset), patch(
-            "pipelines.autorebalance.MarketMonitor",
+        ), patch("pipelines.trading_session._load_or_capture_initial_asset", side_effect=capture_initial_asset), patch(
+            "pipelines.trading_session.MarketMonitor",
             return_value=monitor_mock,
-        ), patch("pipelines.autorebalance._notify"), patch(
-            "pipelines.autorebalance._warn_if_today_selection_missing",
-        ), patch("pipelines.autorebalance.wait_until_market_close"), patch(
-            "pipelines.autorebalance.finalize_trading_day",
-        ), patch("pipelines.autorebalance.time.sleep"):
+        ), patch("pipelines.trading_session._notify"), patch(
+            "pipelines.trading_session._warn_if_today_selection_missing",
+        ), patch("pipelines.trading_session.wait_until_market_close"), patch(
+            "pipelines.trading_session.finalize_trading_day",
+        ), patch("pipelines.trading_session.time.sleep"):
             secret_path = MagicMock()
             secret_path.exists.return_value = True
             secret_path_mock.return_value = secret_path
@@ -136,24 +136,24 @@ class TestAutorebalanceStartup(unittest.TestCase):
         monitor_mock = MagicMock()
         monitor_mock.is_active.side_effect = KeyboardInterrupt()
 
-        with patch("pipelines.autorebalance.get_strategy_profile", return_value=self.strategy_profile), patch(
-            "pipelines.autorebalance.get_strategy_definition",
+        with patch("pipelines.trading_session.get_strategy_profile", return_value=self.strategy_profile), patch(
+            "pipelines.trading_session.get_strategy_definition",
             return_value=strategy_def,
-        ), patch("pipelines.autorebalance.resolve_secret_path") as secret_path_mock, patch(
-            "pipelines.autorebalance.KisAuth.load",
+        ), patch("pipelines.trading_session.resolve_secret_path") as secret_path_mock, patch(
+            "pipelines.trading_session.KisAuth.load",
             return_value=MagicMock(),
-        ), patch("pipelines.autorebalance.PyKis", return_value=kis), patch(
-            "pipelines.autorebalance.is_today_open_day",
+        ), patch("pipelines.trading_session.PyKis", return_value=kis), patch(
+            "pipelines.trading_session.is_today_open_day",
             return_value=True,
         ), patch(
-            "pipelines.autorebalance._load_or_capture_initial_asset",
+            "pipelines.trading_session._load_or_capture_initial_asset",
             return_value=(1_000_000.0, 25_000.0),
-        ), patch("pipelines.autorebalance.MarketMonitor", return_value=monitor_mock), patch(
-            "pipelines.autorebalance._notify",
-        ), patch("pipelines.autorebalance._warn_if_today_selection_missing"), patch(
-            "pipelines.autorebalance.wait_until_market_close",
-        ), patch("pipelines.autorebalance.finalize_trading_day") as finalize_mock, patch(
-            "pipelines.autorebalance.time.sleep",
+        ), patch("pipelines.trading_session.MarketMonitor", return_value=monitor_mock), patch(
+            "pipelines.trading_session._notify",
+        ), patch("pipelines.trading_session._warn_if_today_selection_missing"), patch(
+            "pipelines.trading_session.wait_until_market_close",
+        ), patch("pipelines.trading_session.finalize_trading_day") as finalize_mock, patch(
+            "pipelines.trading_session.time.sleep",
         ):
             secret_path = MagicMock()
             secret_path.exists.return_value = True
@@ -174,25 +174,25 @@ class TestAutorebalanceStartup(unittest.TestCase):
         monitor_mock = MagicMock()
         monitor_mock.is_active.side_effect = [True]
 
-        with patch("pipelines.autorebalance.get_strategy_profile", return_value=self.strategy_profile), patch(
-            "pipelines.autorebalance.get_strategy_definition",
+        with patch("pipelines.trading_session.get_strategy_profile", return_value=self.strategy_profile), patch(
+            "pipelines.trading_session.get_strategy_definition",
             return_value=strategy_def,
-        ), patch("pipelines.autorebalance.resolve_secret_path") as secret_path_mock, patch(
-            "pipelines.autorebalance.KisAuth.load",
+        ), patch("pipelines.trading_session.resolve_secret_path") as secret_path_mock, patch(
+            "pipelines.trading_session.KisAuth.load",
             return_value=MagicMock(),
-        ), patch("pipelines.autorebalance.PyKis", return_value=kis), patch(
-            "pipelines.autorebalance.is_today_open_day",
+        ), patch("pipelines.trading_session.PyKis", return_value=kis), patch(
+            "pipelines.trading_session.is_today_open_day",
             return_value=True,
         ), patch(
-            "pipelines.autorebalance._load_or_capture_initial_asset",
+            "pipelines.trading_session._load_or_capture_initial_asset",
             return_value=(1_000_000.0, 25_000.0),
-        ), patch("pipelines.autorebalance.MarketMonitor", return_value=monitor_mock), patch(
-            "pipelines.autorebalance._notify",
-        ), patch("pipelines.autorebalance._warn_if_today_selection_missing"), patch(
-            "pipelines.autorebalance.wait_until_market_close",
+        ), patch("pipelines.trading_session.MarketMonitor", return_value=monitor_mock), patch(
+            "pipelines.trading_session._notify",
+        ), patch("pipelines.trading_session._warn_if_today_selection_missing"), patch(
+            "pipelines.trading_session.wait_until_market_close",
             side_effect=KeyboardInterrupt(),
-        ), patch("pipelines.autorebalance.finalize_trading_day") as finalize_mock, patch(
-            "pipelines.autorebalance.time.sleep",
+        ), patch("pipelines.trading_session.finalize_trading_day") as finalize_mock, patch(
+            "pipelines.trading_session.time.sleep",
         ):
             secret_path = MagicMock()
             secret_path.exists.return_value = True

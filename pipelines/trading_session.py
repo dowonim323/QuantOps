@@ -53,7 +53,7 @@ TRADE_INTERVAL_SECONDS = 3600
 BASE_DIR = str(Path(__file__).resolve().parent.parent)
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
-logger = logging.getLogger("autorebalance")
+logger = logging.getLogger("trading_session")
 
 AccountRunStatus = Literal["completed", "error", "holiday", "interrupted"]
 
@@ -378,7 +378,7 @@ def finalize_trading_day(
 def run_account(account: AccountProfile) -> AccountRunStatus:
     strategy = get_strategy_profile(account.strategy_id)
     strategy_def = get_strategy_definition(account.strategy_id)
-    account_logger = logging.getLogger(f"autorebalance.{account.account_id}")
+    account_logger = logging.getLogger(f"trading_session.{account.account_id}")
     secret_path = resolve_secret_path(Path(BASE_DIR), account)
     if not secret_path.exists():
         raise FileNotFoundError(f"Secret file not found: {secret_path}")
@@ -526,7 +526,7 @@ def _run_account_thread(
     results: dict[str, AccountRunStatus],
     results_lock: threading.Lock,
 ) -> None:
-    thread_logger = logging.getLogger(f"autorebalance.{account.account_id}")
+    thread_logger = logging.getLogger(f"trading_session.{account.account_id}")
     thread_logger.info("Starting account worker for strategy %s", account.strategy_id)
     result = run_account(account)
     with results_lock:
@@ -546,7 +546,7 @@ def run_trading_session() -> dict[str, AccountRunStatus]:
         thread = threading.Thread(
             target=_run_account_thread,
             args=(account, results, results_lock),
-            name=f"autorebalance-{account.account_id}",
+            name=f"trading-session-{account.account_id}",
             daemon=False,
         )
         thread.start()

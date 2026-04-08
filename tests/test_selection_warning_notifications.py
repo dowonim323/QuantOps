@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipelines.autorebalance import _warn_if_today_selection_missing
+from pipelines.trading_session import _warn_if_today_selection_missing
 from strategies.base import StrategyRuntimeContext
 from strategies.krx_vmq import _load_saved_selection_or_warn
 from tools.trading_profiles import AccountProfile, StrategyProfile
@@ -28,10 +28,10 @@ class TestStartupSelectionWarnings(unittest.TestCase):
         self.kis = MagicMock()
 
     def test_warn_if_today_selection_missing_sends_notification(self):
-        with patch("pipelines.autorebalance.today_kst", return_value=date(2026, 4, 8)), patch(
-            "pipelines.autorebalance.load_stock_selection",
+        with patch("pipelines.trading_session.today_kst", return_value=date(2026, 4, 8)), patch(
+            "pipelines.trading_session.load_stock_selection",
             side_effect=KeyError("missing selection"),
-        ), patch("pipelines.autorebalance._notify") as notify_mock:
+        ), patch("pipelines.trading_session._notify") as notify_mock:
             _warn_if_today_selection_missing(
                 self.account,
                 requires_selection=True,
@@ -46,10 +46,10 @@ class TestStartupSelectionWarnings(unittest.TestCase):
         self.assertEqual(kwargs["tags"], ("warning",))
 
     def test_warn_if_today_selection_empty_sends_notification(self):
-        with patch("pipelines.autorebalance.today_kst", return_value=date(2026, 4, 8)), patch(
-            "pipelines.autorebalance.load_stock_selection",
+        with patch("pipelines.trading_session.today_kst", return_value=date(2026, 4, 8)), patch(
+            "pipelines.trading_session.load_stock_selection",
             return_value=pd.DataFrame(columns=EMPTY_SELECTION_COLUMNS),
-        ), patch("pipelines.autorebalance._notify") as notify_mock:
+        ), patch("pipelines.trading_session._notify") as notify_mock:
             _warn_if_today_selection_missing(
                 self.account,
                 requires_selection=True,
@@ -64,8 +64,8 @@ class TestStartupSelectionWarnings(unittest.TestCase):
         self.assertEqual(kwargs["tags"], ("warning",))
 
     def test_warn_if_today_selection_missing_skips_non_selection_strategy(self):
-        with patch("pipelines.autorebalance.load_stock_selection") as load_mock, patch(
-            "pipelines.autorebalance._notify",
+        with patch("pipelines.trading_session.load_stock_selection") as load_mock, patch(
+            "pipelines.trading_session._notify",
         ) as notify_mock:
             _warn_if_today_selection_missing(
                 self.account,

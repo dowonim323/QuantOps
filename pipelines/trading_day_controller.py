@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime, time as dt_time
 from typing import Mapping, get_args
 
-from pipelines.autorebalance import AccountRunStatus, run_trading_session
+from pipelines.trading_session import AccountRunStatus, run_trading_session
 from strategies import get_strategy_definition
 from tools.notifications import send_notification
 from tools.scheduler_state import (
