@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Iterator, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from tools.financial_db import load_db
+from tools.financial_db import FinancialDBReader, load_db
+from tools.kis_batch_quote import fetch_latest_quotes_batch
+from tools.krx_ohlcv import KrxOHLCVReader
 from .time_utils import today_kst
+
+logger = logging.getLogger(__name__)
 
 FACTOR_COLUMNS = [
     "1/per",
@@ -23,7 +28,6 @@ FACTOR_COLUMNS = [
     "asset_shrink",
     "income_to_debt_growth",
     "volatility",
-    "F_score",
 ]
 
 VALUE_METRICS: Sequence[str] = ("1/per", "1/pbr", "1/psr", "1/pcr")
@@ -39,10 +43,75 @@ SELECTION_FILTER_CONDITIONS: Sequence[Mapping[str, Any]] = (
     {"column": "amount", "mode": "abs", "value": 50_000_000, "direction": "down"},
     {"column": "F_score", "mode": "abs", "value": 2, "direction": "down"},
 )
+PRE_REMOTE_SELECTION_FILTERS: Sequence[Mapping[str, Any]] = (
+    {"column": "asset_shrink", "mode": "abs", "value": 0.3, "direction": "up"},
+)
+AMOUNT_SELECTION_FILTERS: Sequence[Mapping[str, Any]] = (
+    {"column": "amount", "mode": "abs", "value": 50_000_000, "direction": "down"},
+)
 
 _MAX_STOCK_API_RETRY = 10
 _LOOKBACK_DAYS = 365
 _QUOTE_LOOKBACK_DAYS = 30
+_RANK_WINDOW_MIN_SIZE = 20
+_FAILED_STOCK = object()
+
+
+class LazyStockMap(Mapping[str, Any]):
+    def __init__(self, codes: Sequence[str], kis: Any):
+        self._codes = tuple(dict.fromkeys(codes))
+        self._code_set = set(self._codes)
+        self._kis = kis
+        self._cache: dict[str, Any] = {}
+
+    def __getitem__(self, key: str) -> Any:
+        if key not in self._code_set:
+            raise KeyError(key)
+
+        stock = self._resolve_stock(key)
+        if stock is _FAILED_STOCK:
+            raise KeyError(key)
+
+        return stock
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._codes)
+
+    def __len__(self) -> int:
+        return len(self._codes)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self._code_set:
+            return default
+
+        stock = self._resolve_stock(key)
+        if stock is _FAILED_STOCK:
+            return default
+
+        return stock
+
+    @property
+    def kis(self) -> Any:
+        return self._kis
+
+    def _resolve_stock(self, code: str) -> Any:
+        cached = self._cache.get(code)
+        if cached is not None:
+            return cached
+
+        try:
+            stock = _retry_stock_call(
+                lambda: self._kis.stock(code),
+                _MAX_STOCK_API_RETRY,
+                f"{code}의 stock 객체 생성에 {_MAX_STOCK_API_RETRY}회 연속 실패했습니다.",
+            )
+        except RuntimeError as exc:
+            logger.warning("%s", exc)
+            self._cache[code] = _FAILED_STOCK
+            return _FAILED_STOCK
+
+        self._cache[code] = stock
+        return stock
 
 
 def filter_risky(df: pd.DataFrame) -> pd.DataFrame:
@@ -62,7 +131,7 @@ def filter_risky(df: pd.DataFrame) -> pd.DataFrame:
         mask &= df["관리종목"].fillna("") != "Y"
 
     if "시장경고" in df:
-        mask &= ~df["시장경고"].astype(str).fillna("").isin({"2", "3"})
+        mask &= ~df["시장경고"].astype(str).fillna("").isin(["2", "3"])
 
     if "경고예고" in df:
         mask &= df["경고예고"].fillna("") != "Y"
@@ -71,17 +140,43 @@ def filter_risky(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _empty_factor_result() -> dict[str, Any]:
-    return {key: None for key in FACTOR_COLUMNS}
+    result: dict[str, Any] = {key: None for key in FACTOR_COLUMNS}
+    result["eps"] = None
+    result["bps"] = None
+    result["sps"] = None
+    result["cps"] = None
+    result["__fscore_eligible"] = False
+    return result
 
 
-def _load_quarter_statements(code: str) -> tuple[pd.DataFrame, ...]:
+def _to_optional_float(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+
+    return float(value)
+
+
+def _load_quarter_statements(
+    code: str,
+    reader: FinancialDBReader | None = None,
+) -> tuple[pd.DataFrame, ...]:
     """분기 재무제표 데이터를 로드합니다."""
+    if reader is not None:
+        return reader.load_quarter_statements(code)
+
     return (
         load_db("ratio", "quarter", code),
         load_db("income", "quarter", code),
         load_db("balance", "quarter", code),
         load_db("cashflow", "quarter", code),
     )
+
+
+def _has_meaningful_period_data(df: pd.DataFrame, period: str) -> bool:
+    if period not in df.columns:
+        return False
+
+    return bool(df[period].notna().any())
 
 
 def _resolve_period_labels(
@@ -99,10 +194,23 @@ def _resolve_period_labels(
     if not dates:
         raise ValueError("No common dates found")
 
-    cols_sorted = sorted(dates, key=pd.to_datetime)
-    dates_sorted = pd.to_datetime(cols_sorted, format="%Y/%m")
+    cols_sorted = sorted(dates, key=pd.to_datetime, reverse=True)
+    recent_label = next(
+        (
+            period
+            for period in cols_sorted
+            if _has_meaningful_period_data(ratio_quarter, period)
+            and _has_meaningful_period_data(income_quarter, period)
+            and _has_meaningful_period_data(balance_quarter, period)
+            and _has_meaningful_period_data(cashflow_quarter, period)
+        ),
+        None,
+    )
 
-    recent_dt = dates_sorted[-1]
+    if recent_label is None:
+        raise ValueError("No common dates with meaningful data found")
+
+    recent_dt = pd.to_datetime(recent_label, format="%Y/%m")
     prev_quarter = (recent_dt - pd.DateOffset(months=3)).strftime("%Y/%m")
     prev_year = (recent_dt - pd.DateOffset(years=1)).strftime("%Y/%m")
     recent = recent_dt.strftime("%Y/%m")
@@ -150,7 +258,8 @@ def _compute_volatility(stock: Any, code: str) -> tuple[float, bool]:
     if df_chart.shape[0] < 1:
         return np.nan, False
 
-    return -df_chart["ret_stock"].std(), True
+    volatility = df_chart["ret_stock"].std()
+    return float(-volatility), True
 
 
 def _fetch_paidin_events(stock: Any, code: str) -> list[Any]:
@@ -158,10 +267,33 @@ def _fetch_paidin_events(stock: Any, code: str) -> list[Any]:
     end = today_kst()
     start = end - timedelta(days=_LOOKBACK_DAYS)
     return _retry_stock_call(
-        lambda: stock.paidin_capin(start=start, end=end),
+        lambda: stock.paidin_capin(
+            start=start.strftime("%Y%m%d"),
+            end=end.strftime("%Y%m%d"),
+        ),
         _MAX_STOCK_API_RETRY,
         f"{code}의 차트 데이터를 10회 연속 불러오기에 실패하였습니다.",
     )
+
+
+def _fetch_paidin_event_symbols(kis: Any) -> set[str] | None:
+    end = today_kst()
+    start = end - timedelta(days=_LOOKBACK_DAYS)
+    try:
+        events = kis.paidin_capin(
+            symbol="",
+            start=start.strftime("%Y%m%d"),
+            end=end.strftime("%Y%m%d"),
+            max_pages=100,
+        )
+    except Exception:
+        return None
+
+    return {
+        str(item.symbol)
+        for item in events
+        if getattr(item, "symbol", None)
+    }
 
 
 def _calculate_valuation_factors(
@@ -203,10 +335,10 @@ def _calculate_momentum_factors(
     net_quarter = get_val(income_quarter, "당기순이익", prev_quarter)
     net_year = get_val(income_quarter, "당기순이익", prev_year)
 
-    delta_op_q = op_recent - op_quarter if None not in (op_recent, op_quarter) else None
-    delta_op_y = op_recent - op_year if None not in (op_recent, op_year) else None
-    delta_net_q = net_recent - net_quarter if None not in (net_recent, net_quarter) else None
-    delta_net_y = net_recent - net_year if None not in (net_recent, net_year) else None
+    delta_op_q = op_recent - op_quarter if op_recent is not None and op_quarter is not None else None
+    delta_op_y = op_recent - op_year if op_recent is not None and op_year is not None else None
+    delta_net_q = net_recent - net_quarter if net_recent is not None and net_quarter is not None else None
+    delta_net_y = net_recent - net_year if net_recent is not None and net_year is not None else None
 
     if market_cap in (0, None):
         return {
@@ -281,9 +413,9 @@ def _calculate_quality_factors(
 def _calculate_f_score(
     income_quarter: pd.DataFrame,
     cashflow_quarter: pd.DataFrame,
-    stock: Any,
-    code: str,
     recent: str,
+    *,
+    has_paidin_event: bool,
 ) -> int:
     """F-Score를 계산합니다."""
     net_income = income_quarter.loc["당기순이익", recent] if "당기순이익" in income_quarter.index else 0
@@ -292,19 +424,61 @@ def _calculate_f_score(
         if "영업활동으로인한현금흐름" in cashflow_quarter.index
         else 0
     )
-    events = _fetch_paidin_events(stock, code)
-
-    return int(net_income > 0) + int(operating_cash_flow > 0) + int(len(events) == 0)
+    return int(net_income > 0) + int(operating_cash_flow > 0) + int(not has_paidin_event)
 
 
-def _calculate_quant_factors_for_row(row: pd.Series, stocks: Mapping[str, Any]) -> dict[str, Any]:
+def _calculate_f_score_for_row(
+    row: pd.Series,
+    stocks: Mapping[str, Any],
+    reader: FinancialDBReader | None = None,
+    paidin_event_symbols: set[str] | None = None,
+) -> int | None:
+    eligible = row.get("__fscore_eligible", False)
+    if not isinstance(eligible, (bool, np.bool_)) or not bool(eligible):
+        return None
+
+    code = str(row["단축코드"])
+    ratio_q, income_q, balance_q, cashflow_q = _load_quarter_statements(code, reader=reader)
+    recent, _, _ = _resolve_period_labels(ratio_q, income_q, balance_q, cashflow_q)
+
+    if paidin_event_symbols is not None:
+        has_paidin_event = code in paidin_event_symbols
+    else:
+        stock = stocks[code]
+        has_paidin_event = len(_fetch_paidin_events(stock, code)) > 0
+
+    return _calculate_f_score(
+        income_q,
+        cashflow_q,
+        recent,
+        has_paidin_event=has_paidin_event,
+    )
+
+
+def _calculate_quant_factors_for_row(
+    row: pd.Series,
+    stocks: Mapping[str, Any],
+    reader: FinancialDBReader | None = None,
+    volatility_map: Mapping[str, tuple[float, bool]] | None = None,
+) -> dict[str, Any]:
     """단일 종목에 대한 모든 퀀트 팩터를 계산합니다."""
-    code = row["단축코드"]
+    code = str(row["단축코드"])
     stock = stocks[code]
-    price = row["price"]
-    market_cap = row["market_cap"]
+    raw_price = row.get("price")
+    raw_market_cap = row.get("market_cap")
+    price = _to_optional_float(raw_price)
+    market_cap = _to_optional_float(raw_market_cap)
 
-    ratio_q, income_q, balance_q, cashflow_q = _load_quarter_statements(code)
+    if volatility_map is not None and code in volatility_map:
+        volatility, has_volatility = volatility_map[code]
+    else:
+        volatility, has_volatility = _compute_volatility(stock, code)
+    if not has_volatility:
+        result = _empty_factor_result()
+        result["volatility"] = volatility
+        return result
+
+    ratio_q, income_q, balance_q, cashflow_q = _load_quarter_statements(code, reader=reader)
     recent, prev_q, prev_y = _resolve_period_labels(ratio_q, income_q, balance_q, cashflow_q)
 
     # Basic Metrics
@@ -317,19 +491,13 @@ def _calculate_quant_factors_for_row(row: pd.Series, stocks: Mapping[str, Any]) 
     valuation = _calculate_valuation_factors(price, eps, bps, sps, cps)
     momentum = _calculate_momentum_factors(market_cap, income_q, recent, prev_q, prev_y)
     quality = _calculate_quality_factors(income_q, balance_q, recent, prev_y)
-    
-    volatility, has_volatility = _compute_volatility(stock, code)
-    if not has_volatility:
-        return {"volatility": volatility}
-
-    f_score = _calculate_f_score(income_q, cashflow_q, stock, code, recent)
 
     return {
         **valuation,
         **momentum,
         **quality,
         "volatility": volatility,
-        "F_score": f_score,
+        "__fscore_eligible": True,
         "eps": eps,
         "bps": bps,
         "sps": sps,
@@ -337,20 +505,58 @@ def _calculate_quant_factors_for_row(row: pd.Series, stocks: Mapping[str, Any]) 
     }
 
 
-def get_quant_factors(df: pd.DataFrame, stocks: Mapping[str, Any]) -> pd.DataFrame:
+def get_quant_factors(
+    df: pd.DataFrame,
+    stocks: Mapping[str, Any],
+    reader: FinancialDBReader | None = None,
+    volatility_map: Mapping[str, tuple[float, bool]] | None = None,
+) -> pd.DataFrame:
     """DataFrame의 각 종목에 대해 퀀트 팩터를 계산하여 추가합니다."""
     df_out = df.copy()
     results = []
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc="팩터 계산"):
         try:
-            results.append(_calculate_quant_factors_for_row(row, stocks))
+            results.append(
+                _calculate_quant_factors_for_row(
+                    row,
+                    stocks,
+                    reader=reader,
+                    volatility_map=volatility_map,
+                )
+            )
         except Exception as exc:
             # print(f"Error calculating factors for {row.get('단축코드')}: {exc}")
             results.append(_empty_factor_result())
 
     metrics = pd.DataFrame(results, index=df_out.index)
     df_out[metrics.columns] = metrics
+    return df_out
+
+
+def get_f_scores(
+    df: pd.DataFrame,
+    stocks: Mapping[str, Any],
+    reader: FinancialDBReader | None = None,
+    paidin_event_symbols: set[str] | None = None,
+) -> pd.DataFrame:
+    df_out = df.copy()
+    scores = []
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="F-Score 계산"):
+        try:
+            scores.append(
+                _calculate_f_score_for_row(
+                    row,
+                    stocks,
+                    reader=reader,
+                    paidin_event_symbols=paidin_event_symbols,
+                )
+            )
+        except Exception:
+            scores.append(None)
+
+    df_out["F_score"] = scores
     return df_out
 
 
@@ -406,7 +612,7 @@ def filter_stocks(
 
     mask_df = pd.concat(masks, axis=1)
     combined_mask = mask_df.all(axis=1) if match_mode == "all" else mask_df.any(axis=1)
-    combined_mask = combined_mask.fillna(False)
+    combined_mask = pd.Series(combined_mask, index=df.index).fillna(False)
 
     filtered = df.loc[~combined_mask].copy()
     return filtered.reset_index(drop=True)
@@ -463,7 +669,10 @@ def get_rank(
         all_metric_rank_cols.extend(metric_rank_cols)
 
     if all_metric_rank_cols:
-        total_score = df_out[all_metric_rank_cols].mean(axis=1, skipna=True)
+        total_score = pd.Series(
+            df_out[all_metric_rank_cols].mean(axis=1, skipna=True),
+            index=df_out.index,
+        )
         df_out["rank_total"] = total_score.rank(
             method="min",
             ascending=True,
@@ -480,17 +689,24 @@ def get_rank(
 
 
 def get_stock_quote(df: pd.DataFrame, stocks: Mapping[str, Any]) -> pd.DataFrame:
-    """KIS stock 객체를 활용하여 현재가, 시가총액, 최근 거래대금 평균을 수집합니다."""
+    kis = getattr(stocks, "kis", None)
+    if kis is not None:
+        return fetch_latest_quotes_batch(
+            df.drop(columns=[column for column in ["market_cap"] if column in df.columns]),
+            kis,
+            retry=_MAX_STOCK_API_RETRY,
+            progress_desc="종목 시세 조회",
+        )
+
     df_out = df.copy()
     results = []
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc="종목 시세 조회"):
-        stock_code = row["단축코드"]
+        stock_code = str(row["단축코드"])
         stock = stocks.get(stock_code)
 
         if stock is None:
-            # print(f"{stock_code} 종목 객체가 stocks 매핑에 없습니다.")
-            results.append({"price": None, "market_cap": None, "amount": None})
+            results.append({"price": None, "market_cap": None})
             continue
 
         try:
@@ -506,12 +722,54 @@ def get_stock_quote(df: pd.DataFrame, stocks: Mapping[str, Any]) -> pd.DataFrame
             price = None
             market_cap = None
 
+        results.append(
+            {
+                "price": price,
+                "market_cap": market_cap,
+            }
+        )
+
+    metrics = pd.DataFrame(results, index=df_out.index)
+    df_out[metrics.columns] = metrics
+    return df_out
+
+
+def get_average_amount(
+    df: pd.DataFrame,
+    stocks: Mapping[str, Any],
+    krx_reader: KrxOHLCVReader | None = None,
+) -> pd.DataFrame:
+    df_out = df.copy()
+    results = []
+    amount_map: dict[str, int | None] = {}
+
+    if krx_reader is not None:
+        amount_map = krx_reader.compute_amounts(
+            df_out["단축코드"].astype(str).tolist(),
+            end_day=today_kst() - timedelta(days=1),
+            lookback_days=_QUOTE_LOOKBACK_DAYS,
+        )
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="거래대금 조회"):
+        stock_code = str(row["단축코드"])
+        if stock_code in amount_map and amount_map[stock_code] is not None:
+            results.append({"amount": amount_map[stock_code]})
+            continue
+
+        stock = stocks.get(stock_code)
+
+        if stock is None:
+            results.append({"amount": None})
+            continue
+
+        stock_obj = stock
+
         try:
             today = today_kst()
             start_date = today - timedelta(days=_QUOTE_LOOKBACK_DAYS)
             end_date = today - timedelta(days=1)
             chart = _retry_stock_call(
-                lambda start=start_date, end=end_date: stock.daily_chart(
+                lambda start=start_date, end=end_date: stock_obj.daily_chart(
                     start=start,
                     end=end,
                     period="day",
@@ -528,17 +786,70 @@ def get_stock_quote(df: pd.DataFrame, stocks: Mapping[str, Any]) -> pd.DataFrame
             # print(exc)
             amount = None
 
-        results.append(
-            {
-                "price": price,
-                "market_cap": market_cap,
-                "amount": amount,
-            }
-        )
+        results.append({"amount": amount})
 
     metrics = pd.DataFrame(results, index=df_out.index)
     df_out[metrics.columns] = metrics
     return df_out
+
+
+def _evaluate_ranked_candidates(
+    df_ranked: pd.DataFrame,
+    stocks: Mapping[str, Any],
+    *,
+    top_n: int,
+    include_full_data: bool,
+    reader: FinancialDBReader | None = None,
+    krx_reader: KrxOHLCVReader | None = None,
+) -> pd.DataFrame:
+    if df_ranked.empty:
+        return df_ranked.copy()
+
+    df_base = filter_stocks(df_ranked, PRE_REMOTE_SELECTION_FILTERS)
+    if df_base.empty:
+        return df_base
+
+    window_size = max(top_n, _RANK_WINDOW_MIN_SIZE)
+    paidin_event_symbols: set[str] | None = None
+    paidin_event_symbols_loaded = False
+    survivors: list[pd.DataFrame] = []
+    survivor_count = 0
+    kis = getattr(stocks, "kis", None)
+
+    for start in range(0, len(df_base), window_size):
+        df_window = df_base.iloc[start : start + window_size].copy()
+        if df_window.empty:
+            continue
+
+        df_with_amount = get_average_amount(df_window, stocks, krx_reader=krx_reader)
+        df_amount_survivors = filter_stocks(df_with_amount, AMOUNT_SELECTION_FILTERS)
+        if df_amount_survivors.empty:
+            if not include_full_data and survivor_count >= top_n:
+                break
+            continue
+
+        if not paidin_event_symbols_loaded and kis is not None:
+            paidin_event_symbols = _fetch_paidin_event_symbols(kis)
+            paidin_event_symbols_loaded = True
+
+        df_with_f_score = get_f_scores(
+            df_amount_survivors,
+            stocks,
+            reader=reader,
+            paidin_event_symbols=paidin_event_symbols,
+        )
+        df_filtered = apply_custom_selection_filters(df_with_f_score)
+        if not df_filtered.empty:
+            survivors.append(df_filtered)
+            survivor_count += len(df_filtered)
+
+        if not include_full_data and survivor_count >= top_n:
+            break
+
+    if not survivors:
+        return df_base.iloc[0:0].copy()
+
+    return pd.concat(survivors, ignore_index=True)
 
 
 def apply_risk_filters(df: pd.DataFrame) -> pd.DataFrame:
@@ -581,24 +892,12 @@ def apply_custom_selection_filters(df: pd.DataFrame) -> pd.DataFrame:
 
 def create_stock_objects(df: pd.DataFrame, kis: Any) -> Mapping[str, Any]:
     """DataFrame의 '단축코드' 컬럼을 기반으로 KIS stock 객체를 생성합니다."""
-    stocks = {}
-
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Stock 객체 생성"):
-        stock_code = row["단축코드"]
-
-        if stock_code in stocks:
-            continue
-
-        try:
-            stocks[stock_code] = _retry_stock_call(
-                lambda code=stock_code: kis.stock(code),
-                _MAX_STOCK_API_RETRY,
-                f"{stock_code}의 stock 객체 생성에 {_MAX_STOCK_API_RETRY}회 연속 실패했습니다.",
-            )
-        except RuntimeError as exc:
-            print(exc)
-
-    return stocks
+    unique_codes = (
+        df["단축코드"].dropna().astype(str).drop_duplicates().tolist()
+        if "단축코드" in df.columns
+        else []
+    )
+    return LazyStockMap(unique_codes, kis)
 
 
 def select_stocks(
@@ -620,45 +919,63 @@ def select_stocks(
         include_full_data=True이면 (상위 top_n DataFrame, 필터링 및 랭킹 정보가
         포함된 전체 DataFrame)의 튜플을 반환합니다.
     """
+    def _return_result(df: pd.DataFrame) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
+        if include_full_data:
+            return df, df
+        return df
+
     if df_codes.empty:
-        return df_codes.reindex(columns=["단축코드", "한글명"])
+        return _return_result(df_codes.reindex(columns=["단축코드", "한글명"]))
 
     if top_n <= 0:
         raise ValueError("top_n은 1 이상이어야 합니다.")
 
-    df_with_quotes = get_stock_quote(df_codes, stocks)
+    df_candidates = apply_risk_filters(df_codes)
+    if df_candidates.empty:
+        return _return_result(df_candidates.reindex(columns=["단축코드", "한글명"]))
+
+    df_with_quotes = get_stock_quote(df_candidates, stocks)
 
     if df_with_quotes.empty:
-        return df_codes.reindex(columns=["단축코드", "한글명"])
+        return _return_result(df_codes.reindex(columns=["단축코드", "한글명"]))
 
-    df_with_factors = get_quant_factors(df_with_quotes, stocks).reset_index(drop=True)
+    df_smallcap = apply_smallcap_filter(df_with_quotes)
+    if df_smallcap.empty:
+        return _return_result(df_smallcap.reindex(columns=["단축코드", "한글명"]))
 
-    df_after_risk = apply_risk_filters(df_with_factors)
-    if df_after_risk.empty:
-        return df_after_risk.reindex(columns=["단축코드", "한글명"])
+    with FinancialDBReader() as db_reader:
+        db_reader.prefetch_quarter_statements(df_smallcap["단축코드"].astype(str).tolist())
+        df_with_factors = get_quant_factors(
+            df_smallcap,
+            stocks,
+            reader=db_reader,
+        ).reset_index(drop=True)
 
-    df_pre_rank = apply_smallcap_filter(df_after_risk)
-    if df_pre_rank.empty:
-        return df_pre_rank.reindex(columns=["단축코드", "한글명"])
+        df_ranked = get_rank(
+            df_with_factors,
+            value_metrics=VALUE_METRICS,
+            momentum_metrics=MOMENTUM_METRICS,
+            quality_metrics=QUALITY_METRICS,
+        )
 
-    df_ranked = get_rank(
-        df_pre_rank,
-        value_metrics=VALUE_METRICS,
-        momentum_metrics=MOMENTUM_METRICS,
-        quality_metrics=QUALITY_METRICS,
-    )
-
-    df_after_custom = apply_custom_selection_filters(df_ranked)
+        df_after_custom = _evaluate_ranked_candidates(
+            df_ranked,
+            stocks,
+            top_n=top_n,
+            include_full_data=include_full_data,
+            reader=db_reader,
+        )
 
     if df_after_custom.empty:
-        return df_after_custom.reindex(columns=["단축코드", "한글명"])
+        return _return_result(df_after_custom.reindex(columns=["단축코드", "한글명"]))
 
-    df_filtered = df_after_custom.sort_values("rank_total").reset_index(drop=True)
+    helper_columns = [column for column in df_after_custom.columns if column.startswith("__")]
+    df_filtered = df_after_custom.drop(columns=helper_columns, errors="ignore").sort_values("rank_total").reset_index(drop=True)
     selection_columns = ("단축코드", "한글명")
     df_top = df_filtered.loc[:, selection_columns].head(top_n).reset_index(drop=True)
 
     if include_full_data:
-        return df_top, df_with_factors
+        return df_top, df_filtered
 
     return df_top
 
@@ -669,7 +986,10 @@ __all__ = [
     "filter_stocks",
     "get_rank",
     "get_stock_quote",
+    "get_average_amount",
+    "get_f_scores",
     "create_stock_objects",
+    "LazyStockMap",
     "select_stocks",
     "VALUE_METRICS",
     "MOMENTUM_METRICS",

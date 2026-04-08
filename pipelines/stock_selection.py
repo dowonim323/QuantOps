@@ -4,21 +4,26 @@ from pathlib import Path
 
 from pykis import PyKis, KisAuth
 
+from strategies import get_strategy_definition
 from tools.market_master import (
     download_code_master,
     get_kospi_kosdaq_master_dataframe,
 )
-from tools.quant_utils import (
-    create_stock_objects,
-    select_stocks,
-)
+from tools.quant_utils import create_stock_objects
 from tools.selection_store import save_stock_selection
 from tools.financial_db import backup_quant_databases
 from tools.notifications import send_notification
+from tools.trading_profiles import (
+    get_enabled_accounts,
+    get_primary_selection_account,
+    get_strategy_profile,
+    get_unique_strategies,
+    resolve_secret_path,
+)
 
 
 NOTIFICATION_CHANNEL = "stock_selection"
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -46,8 +51,14 @@ def main() -> None:
     start_time = time.perf_counter()
 
     try:
+        accounts = get_enabled_accounts()
+        if not accounts:
+            raise ValueError("No enabled trading accounts configured.")
+
+        primary_account = get_primary_selection_account(accounts)
+        strategy_profiles = get_unique_strategies(accounts)
         code_dir = BASE_DIR / "codes"
-        secret_path = BASE_DIR / "secrets" / "real.json"
+        secret_path = resolve_secret_path(BASE_DIR, primary_account)
 
         kis = PyKis(KisAuth.load(secret_path), keep_token=True)
 
@@ -66,26 +77,43 @@ def main() -> None:
             tags=("rocket",),
         )
 
-        # 2. 종목 객체 생성 및 선정
         stocks = create_stock_objects(df_codes, kis)
-        df_selected, df_snapshot = select_stocks(
-            df_codes,
-            stocks,
-            include_full_data=True,
-        )
-
-        # 3. 결과 저장
         backup_quant_databases()
-        save_stock_selection(df_snapshot)
-        
-        selected_count = len(df_selected)
+
+        strategy_results: list[str] = []
+        total_selected = 0
+        processed_strategies = 0
+        for strategy in strategy_profiles:
+            strategy_def = get_strategy_definition(strategy.strategy_id)
+            if not strategy_def.requires_selection:
+                strategy_results.append(
+                    f"- {strategy.display_name} ({strategy.strategy_id}): skipped (selection not required)"
+                )
+                continue
+
+            df_selected, df_snapshot = strategy_def.build_selection_snapshot(
+                df_codes,
+                stocks,
+                kis,
+                strategy.selection_top_n,
+            )
+            save_stock_selection(df_snapshot, strategy_id=strategy.strategy_id)
+            selected_count = len(df_selected)
+            total_selected += selected_count
+            processed_strategies += 1
+            strategy_results.append(
+                f"- {strategy.display_name} ({strategy.strategy_id}): {selected_count} stocks"
+            )
+
         elapsed_seconds = time.perf_counter() - start_time
 
         # 완료 알림
         summary_lines = [
             "Stock selection process completed.",
             f"Total candidates: {total_stocks}",
-            f"Selected stocks: {selected_count}",
+            f"Strategies processed: {processed_strategies}",
+            f"Total selected stocks: {total_selected}",
+            *strategy_results,
             f"Elapsed time: {_format_elapsed(elapsed_seconds)}",
         ]
 
