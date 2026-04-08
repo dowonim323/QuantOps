@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from typing import Any, Iterable, TYPE_CHECKING
 
 from pykis import (
@@ -21,6 +21,23 @@ if TYPE_CHECKING:
 
 DEFAULT_INDEXES: tuple[str, ...] = ("KOSPI", "KOSDAQ")
 DEFAULT_CHANNEL = os.environ.get("NOTIFICATION_CHANNEL", "trade_execution")
+DEFAULT_MARKET_CLOSE_TIME = os.environ.get("DEFAULT_MARKET_CLOSE_TIME", "15:30")
+
+
+def _parse_market_close_time(value: str = DEFAULT_MARKET_CLOSE_TIME) -> dt_time:
+    hour_str, minute_str = value.split(":", 1)
+    return dt_time(hour=int(hour_str), minute=int(minute_str))
+
+
+def _default_market_close_datetime(base_dt: datetime | None = None) -> datetime:
+    current_dt = base_dt or datetime.now()
+    close_time = _parse_market_close_time()
+    return current_dt.replace(
+        hour=close_time.hour,
+        minute=close_time.minute,
+        second=0,
+        microsecond=0,
+    )
 
 
 def check_market_open_by_indexes(
@@ -109,6 +126,8 @@ def wait_until_market_close(
     *,
     timeout: float = 180.0,
     poll_interval: float = 60.0,
+    max_error_retries: int = 5,
+    default_close_time: dt_time | None = None,
     verbose: bool = False,
 ) -> datetime:
     """
@@ -120,14 +139,61 @@ def wait_until_market_close(
         시장 폐장이 감지된 시각
     """
     if verbose:
-        logger.info("Waiting for market close... (indexes=%s, timeout=%s, interval=%s)", indexes, timeout, poll_interval)
+        logger.info(
+            "Waiting for market close... (indexes=%s, timeout=%s, interval=%s, max_error_retries=%s)",
+            indexes,
+            timeout,
+            poll_interval,
+            max_error_retries,
+        )
+
+    error_retries = 0
 
     while True:
-        if not check_market_open_by_indexes(
-            kis,
-            indexes=indexes,
-            timeout=timeout,
-        ):
+        try:
+            market_open = check_market_open_by_indexes(
+                kis,
+                indexes=indexes,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            error_retries += 1
+            if verbose:
+                logger.info(
+                    "Market-close probe errored (%d/%d): %s",
+                    error_retries,
+                    max_error_retries,
+                    exc,
+                )
+            if error_retries > max_error_retries:
+                current_dt = datetime.now()
+                fallback_dt = _default_market_close_datetime(current_dt)
+                if default_close_time is not None:
+                    fallback_dt = current_dt.replace(
+                        hour=default_close_time.hour,
+                        minute=default_close_time.minute,
+                        second=0,
+                        microsecond=0,
+                    )
+
+                wait_seconds = max(0.0, (fallback_dt - current_dt).total_seconds())
+                if verbose:
+                    logger.info(
+                        "Market-close probe errors exceeded retry limit. Falling back to configured close time %s.",
+                        fallback_dt.strftime("%H:%M:%S"),
+                    )
+                if wait_seconds > 0:
+                    time.sleep(wait_seconds)
+                if verbose:
+                    logger.info("Market close detected by fallback close time.")
+                return fallback_dt
+            if poll_interval > 0:
+                time.sleep(poll_interval)
+            continue
+
+        error_retries = 0
+
+        if not market_open:
             if verbose:
                 logger.info("Market close detected!")
             return datetime.now()
@@ -440,4 +506,3 @@ class MarketMonitor:
             return True
             
         return (time.time() - self.last_update) < timeout
-

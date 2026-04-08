@@ -4,7 +4,7 @@ import os
 import ssl
 import urllib.request
 import zipfile
-from typing import Literal
+from typing import Literal, cast
 
 import pandas as pd
 
@@ -97,7 +97,7 @@ def get_sector_master_dataframe(
             if code:
                 rows.append((code, name))
 
-    df = pd.DataFrame(rows, columns=["업종코드", "업종명"])
+    df = pd.DataFrame(rows, columns=pd.Index(["업종코드", "업종명"]))
 
     if not keep_files:
         if os.path.exists(zip_path):
@@ -201,11 +201,19 @@ def _read_kospi_master(base_dir: str) -> pd.DataFrame:
         row_len_offset=228
     )
 
-    df = df[
-        (df["그룹코드"] == "ST")
-        & (df["SPAC"] == "N")
-        & (df["기준년월"].notna())
-    ][["단축코드", "한글명", "거래정지", "정리매매", "관리종목", "시장경고", "경고예고"]]
+    df = cast(
+        pd.DataFrame,
+        df.loc[
+            (df["그룹코드"] == "ST")
+            & (df["SPAC"] == "N")
+            & (df["기준년월"].notna()),
+            ["단축코드", "한글명", "거래정지", "정리매매", "관리종목", "시장경고", "경고예고", "상장주수", "시가총액"],
+        ].copy(),
+    )
+
+    df["상장주수"] = cast(pd.Series, pd.to_numeric(df["상장주수"], errors="coerce")).mul(1000)
+    df["market_cap"] = pd.to_numeric(df["시가총액"], errors="coerce")
+    df = df.drop(columns=["시가총액"])
 
     df["시장구분"] = "KOSPI"
     return df
@@ -256,21 +264,25 @@ def _read_kosdaq_master(base_dir: str) -> pd.DataFrame:
         row_len_offset=222
     )
 
-    df = df[
-        (df["증권그룹구분코드"] == "ST")
-        & (df["기업인수목적회사여부"] == "N")
-        & (df["기준년월"].notna())
-    ][
-        [
-            "단축코드",
-            "한글명",
-            "거래정지 여부",
-            "정리매매 여부",
-            "관리 종목 여부",
-            "시장 경고 구분 코드",
-            "시장 경고위험 예고 여부",
-        ]
-    ]
+    df = cast(
+        pd.DataFrame,
+        df.loc[
+            (df["증권그룹구분코드"] == "ST")
+            & (df["기업인수목적회사여부"] == "N")
+            & (df["기준년월"].notna()),
+            [
+                "단축코드",
+                "한글명",
+                "거래정지 여부",
+                "정리매매 여부",
+                "관리 종목 여부",
+                "시장 경고 구분 코드",
+                "시장 경고위험 예고 여부",
+                "상장 주수(천)",
+                "전일기준 시가총액 (억)",
+            ],
+        ].copy(),
+    )
 
     df = df.rename(
         columns={
@@ -279,8 +291,13 @@ def _read_kosdaq_master(base_dir: str) -> pd.DataFrame:
             "관리 종목 여부": "관리종목",
             "시장 경고 구분 코드": "시장경고",
             "시장 경고위험 예고 여부": "경고예고",
+            "상장 주수(천)": "상장주수",
+            "전일기준 시가총액 (억)": "market_cap",
         }
     )
+
+    df["상장주수"] = cast(pd.Series, pd.to_numeric(df["상장주수"], errors="coerce")).mul(1000)
+    df["market_cap"] = pd.to_numeric(df["market_cap"], errors="coerce")
 
     df["시장구분"] = "KOSDAQ"
     return df
@@ -291,9 +308,13 @@ def get_kospi_kosdaq_master_dataframe(base_dir: str) -> pd.DataFrame:
     df_kospi = _read_kospi_master(base_dir)
     df_kosdaq = _read_kosdaq_master(base_dir)
     df_all = pd.concat([df_kospi, df_kosdaq], ignore_index=True)
-    return df_all[
-        ["단축코드", "한글명", "거래정지", "정리매매", "관리종목", "시장경고", "경고예고", "시장구분"]
-    ]
+    return cast(
+        pd.DataFrame,
+        df_all.loc[
+            :,
+            ["단축코드", "한글명", "거래정지", "정리매매", "관리종목", "시장경고", "경고예고", "시장구분", "market_cap", "상장주수"],
+        ].copy(),
+    )
 
 
 __all__ = [
