@@ -2,22 +2,11 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies for Chrome + cron + timezone
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron \
-    tzdata \
-    wget \
-    gnupg \
-    unzip \
     curl \
+    supervisor \
+    tzdata \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Chrome using modern keyring method (apt-key is deprecated)
-RUN wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends /tmp/chrome.deb \
-    && rm /tmp/chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # Set timezone to Asia/Seoul (KST)
@@ -31,23 +20,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY tools/ /app/tools/
 COPY pykis/ /app/pykis/
-COPY financial_crawler.py /app/
-COPY stock_selection.py /app/
-COPY autorebalance.py /app/
+COPY strategies/ /app/strategies/
+COPY pipelines/ /app/pipelines/
 
 # Set python path
 ENV PYTHONPATH=/app
 
-# Copy cron configuration and entrypoint
-COPY scheduler/crontab /etc/cron.d/quantops-cron
 COPY scheduler/entrypoint.sh /entrypoint.sh
+COPY scheduler/supervisord.conf /etc/supervisor/quantops-supervisord.conf
 
 # Set permissions
-RUN chmod 0644 /etc/cron.d/quantops-cron \
-    && chmod +x /entrypoint.sh \
-    && crontab /etc/cron.d/quantops-cron
-
-# Create log file for cron output
-RUN touch /var/log/cron.log
+RUN chmod +x /entrypoint.sh \
+    && chmod 0644 /etc/supervisor/quantops-supervisord.conf
 
 ENTRYPOINT ["/entrypoint.sh"]
