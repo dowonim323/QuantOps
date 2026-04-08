@@ -26,6 +26,7 @@
 - **Auto-Rebalancing**: Maintains optimal portfolio allocation automatically.
 - **Retry Logic**: Automatically retries unfilled orders when orderbook prices are unfavorable.
 - **Discord Notifications**: Real-time alerts for order status and unfilled orders.
+- **Supervisor-Native Scheduling**: Runs nightly preparation and trading-day control as long-lived supervisor-managed controllers.
 
 ### 🖥️ Professional Dashboard
 - **Real-time Monitoring**: Track total assets, daily returns, and profit/loss at a glance.
@@ -84,8 +85,68 @@ pip install pandas numpy requests websocket-client flask flask-login python-dote
     docker compose up -d --build
     ```
 
+    This integrated compose setup starts both the web dashboard and the supervisor-managed scheduler container.
+
+    Dashboard-only alternatives:
+    ```bash
+    docker compose -f web/docker-compose.yml up -d --build
+    ```
+
+    Or from the `web/` directory:
+    ```bash
+    docker compose up -d --build
+    ```
+
 5.  **Access the Dashboard**
-    Open your browser and navigate to `http://localhost:80`.
+    Open your browser and navigate to `http://localhost:15000`.
+
+---
+
+## 🧭 Runtime Architecture
+
+QuantOps currently runs as two containers in the root `docker-compose.yml` setup:
+
+- **`web`**: Flask dashboard on port `15000`
+- **`scheduler`**: a dedicated container that starts `supervisord`
+
+The scheduler container no longer depends on cron. `supervisord` directly manages two long-lived controller processes:
+
+- **`nightly-prep-controller`** (`python -m pipelines.nightly_prep_controller`)
+  - Runs the nightly preparation window in KST
+  - Executes `financial_crawler` first and `stock_selection` second
+  - Persists progress so selection can resume if crawler already completed
+
+- **`trading-day-controller`** (`python -m pipelines.trading_day_controller`)
+  - Launches the daily trading session once per account/day
+  - Preserves manual-review blocks for incomplete or abnormal prior sessions
+  - Allows sell-capable sessions to start even when saved selections are unavailable
+  - Persists launch mode and heartbeat metadata for operator visibility
+
+The VMQ strategy keeps its existing sell behavior. If saved selections are missing, trading-day launch is still allowed and selection-dependent buy/rebalance paths are skipped at runtime. This degraded mode is recorded as `launch_mode=degraded_sell_only` in scheduler state.
+
+---
+
+## 🛎️ Scheduler Operations
+
+Inspect the current scheduler state:
+
+```bash
+python -m pipelines.scheduler_admin status
+python -m pipelines.scheduler_admin status --run-date 2026-04-08
+```
+
+If the trading controller blocks a day for manual review, clear it explicitly after operator inspection:
+
+```bash
+python -m pipelines.scheduler_admin clear-trading-review --run-date 2026-04-08 --account-id krx_vmq
+```
+
+The persisted trading-day state now exposes:
+
+- `status` and `phase`
+- `launch_mode` and `launch_reason`
+- `last_heartbeat_at`
+- unresolved manual-review entries via `pending_manual_reviews`
 
 ---
 
@@ -93,12 +154,19 @@ pip install pandas numpy requests websocket-client flask flask-login python-dote
 
 ```
 QuantOps/
-├── 📂 pykis/               # KIS API Wrapper Library
-├── 📂 web/                 # Web Dashboard Application
-├── 📂 tools/               # Utility Scripts & Helpers
-├── 📄 financial_crawler.py # Financial Data Collection Script
-├── 📄 stock_selection.py   # Quantitative Selection Script
-├── 📄 autorebalance.py     # Automated Trading Script
+├── 📂 pykis/                   # KIS API Wrapper Library
+├── 📂 strategies/              # Strategy registry and runtime strategy logic
+├── 📂 web/                     # Web Dashboard Application
+├── 📂 scheduler/               # Scheduler container image and supervisord config
+├── 📂 tools/                   # Utility Scripts, persistence helpers, scheduler state
+├── 📁 pipelines/
+│   ├── 📄 financial_crawler.py       # Financial data collection pipeline
+│   ├── 📄 stock_selection.py         # Quantitative stock selection pipeline
+│   ├── 📄 autorebalance.py           # Trading session runner
+│   ├── 📄 nightly_prep_controller.py # Supervisor-managed nightly prep controller
+│   ├── 📄 trading_day_controller.py  # Supervisor-managed trading-day controller
+│   └── 📄 scheduler_admin.py         # Scheduler state inspection/admin CLI
+├── 📄 docker-compose.yml       # Integrated web + scheduler deployment
 └── 📄 README.md            # Project Documentation
 ```
 
