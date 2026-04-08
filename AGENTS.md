@@ -37,7 +37,7 @@ There is no repo-wide `Makefile`, `pyproject.toml`, `pytest.ini`, Ruff config, F
 
 ### Pipeline entrypoints
 ```bash
-python -m pipelines.autorebalance
+python -m pipelines.trading_session
 python -m pipelines.stock_selection
 python -m pipelines.financial_crawler
 ```
