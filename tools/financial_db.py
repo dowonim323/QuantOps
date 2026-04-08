@@ -4,7 +4,7 @@ import shutil
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Iterable, Mapping, Tuple, cast
 
 import pandas as pd
 
@@ -55,27 +55,69 @@ GROUP_DB_MAP: Dict[GroupKey, Path] = {
 STOCK_SELECTION_DB_PATH = _resolve_quant_db_path("stock_selection.db")
 
 
-def ensure_table(conn: sqlite3.Connection, code: str) -> None:
-    conn.execute(f'CREATE TABLE IF NOT EXISTS "{code}" (metric TEXT PRIMARY KEY)')
+def get_financial_db_path(report_type: str, period: str) -> Path:
+    group_key = (report_type, period)
+    if group_key not in GROUP_DB_MAP:
+        raise ValueError(f"알 수 없는 그룹: {group_key}")
+
+    return GROUP_DB_MAP[group_key]
+
+
+def get_stock_selection_db_path(strategy_id: str | None = None) -> Path:
+    if strategy_id in (None, "", "default"):
+        return STOCK_SELECTION_DB_PATH
+
+    return _resolve_quant_db_path(f"stock_selection_{strategy_id}.db")
+
+
+def _quote_identifier(identifier: str) -> str:
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def _qualified_table_name(code: str, schema: str | None = None) -> str:
+    table_name = _quote_identifier(code)
+    if schema is None:
+        return table_name
+
+    return f'{_quote_identifier(schema)}.{table_name}'
+
+
+def ensure_table(
+    conn: sqlite3.Connection,
+    code: str,
+    schema: str | None = None,
+) -> None:
+    conn.execute(
+        f"CREATE TABLE IF NOT EXISTS {_qualified_table_name(code, schema)} "
+        "(metric TEXT PRIMARY KEY)"
+    )
 
 
 def ensure_columns(
     conn: sqlite3.Connection,
     code: str,
     columns: Iterable[str],
+    schema: str | None = None,
 ) -> None:
     column_list = list(columns)
     if not column_list:
         return
 
     existing_columns = {
-        row[1] for row in conn.execute(f'PRAGMA table_info("{code}")')
+        row[1]
+        for row in conn.execute(
+            f"PRAGMA {'' if schema is None else f'{_quote_identifier(schema)}.'}table_info({_quote_identifier(code)})"
+        )
     }
 
     for column in column_list:
         if column in existing_columns:
             continue
-        conn.execute(f'ALTER TABLE "{code}" ADD COLUMN "{column}" REAL')
+        conn.execute(
+            f"ALTER TABLE {_qualified_table_name(code, schema)} "
+            f"ADD COLUMN {_quote_identifier(column)} REAL"
+        )
         existing_columns.add(column)
 
 
@@ -154,76 +196,256 @@ def backup_quant_databases(history_limit: int = 30) -> Path | None:
     return _backup_db_group(QUANT_DATA_DIR, DB_HISTORY_QUANT_DIR, history_limit)
 
 
-def update_db(report_type: str, period: str, code: str, df: pd.DataFrame) -> None:
-    group_key = (report_type, period)
-    if group_key not in GROUP_DB_MAP:
-        raise ValueError(f"알 수 없는 그룹: {group_key}")
+def _normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    normalized = df.copy()
+    normalized.index = normalized.index.astype(str)
+    normalized.columns = normalized.columns.astype(str)
+    return normalized
 
-    db_path = GROUP_DB_MAP[group_key]
+
+def _build_row_parameters(df: pd.DataFrame) -> list[tuple[object, ...]]:
+    row_parameters: list[tuple[object, ...]] = []
+
+    for metric, row in df.iterrows():
+        values: list[object] = [metric]
+        for value in row.tolist():
+            if value is None or pd.isna(value):
+                values.append(None)
+            else:
+                values.append(float(value))
+        row_parameters.append(tuple(values))
+
+    return row_parameters
+
+
+def _write_dataframe(
+    conn: sqlite3.Connection,
+    report_type: str,
+    period: str,
+    code: str,
+    df: pd.DataFrame,
+    *,
+    drop_missing_metrics: bool = False,
+    schema: str | None = None,
+) -> None:
+    normalized = _normalize_dataframe(df)
+    if normalized.empty:
+        return
+
+    ensure_table(conn, code, schema=schema)
+    ensure_columns(conn, code, normalized.columns, schema=schema)
+
+    qualified_table = _qualified_table_name(code, schema)
+
+    if drop_missing_metrics:
+        placeholders = ", ".join("?" for _ in normalized.index)
+        if placeholders:
+            conn.execute(
+                f"DELETE FROM {qualified_table} WHERE metric NOT IN ({placeholders})",
+                tuple(normalized.index),
+            )
+
+    column_identifiers = [_quote_identifier(column) for column in normalized.columns]
+    insert_columns = ", ".join([_quote_identifier("metric"), *column_identifiers])
+    value_placeholders = ", ".join("?" for _ in range(len(normalized.columns) + 1))
+    update_assignments = ", ".join(
+        f"{column_identifier} = excluded.{column_identifier}"
+        for column_identifier in column_identifiers
+    )
+    row_parameters = _build_row_parameters(normalized)
+
+    conn.executemany(
+        f"INSERT INTO {qualified_table} ({insert_columns}) "
+        f"VALUES ({value_placeholders}) "
+        f"ON CONFLICT(metric) DO UPDATE SET {update_assignments}",
+        row_parameters,
+    )
+
+
+class FinancialDBBatchWriter:
+    def __init__(
+        self,
+        db_map: Mapping[GroupKey, Path] | None = None,
+    ) -> None:
+        self._db_map = dict(db_map or GROUP_DB_MAP)
+        self._aliases: dict[GroupKey, str] = {}
+        self._conn = sqlite3.connect(":memory:", isolation_level=None)
+        self._savepoint_index = 0
+
+        for index, (group_key, db_path) in enumerate(self._db_map.items()):
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            alias = f"financial_{index}"
+            self._conn.execute(
+                f"ATTACH DATABASE ? AS {_quote_identifier(alias)}",
+                (str(db_path),),
+            )
+            self._aliases[group_key] = alias
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> FinancialDBBatchWriter:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
+
+    def write_symbol_reports(
+        self,
+        reports: Iterable[tuple[str, str, str, pd.DataFrame]],
+        *,
+        drop_missing_metrics: bool = False,
+    ) -> None:
+        report_list = list(reports)
+        if not report_list:
+            return
+
+        self._savepoint_index += 1
+        savepoint_name = f"symbol_{self._savepoint_index}"
+        quoted_savepoint = _quote_identifier(savepoint_name)
+        self._conn.execute(f"SAVEPOINT {quoted_savepoint}")
+
+        try:
+            for report_type, period, code, df in report_list:
+                group_key = cast(GroupKey, (report_type, period))
+                alias = self._aliases[group_key]
+                _write_dataframe(
+                    self._conn,
+                    report_type,
+                    period,
+                    code,
+                    df,
+                    drop_missing_metrics=drop_missing_metrics,
+                    schema=alias,
+                )
+        except Exception:
+            self._conn.execute(f"ROLLBACK TO SAVEPOINT {quoted_savepoint}")
+            self._conn.execute(f"RELEASE SAVEPOINT {quoted_savepoint}")
+            raise
+
+        self._conn.execute(f"RELEASE SAVEPOINT {quoted_savepoint}")
+
+
+def update_db(
+    report_type: str,
+    period: str,
+    code: str,
+    df: pd.DataFrame,
+    *,
+    drop_missing_metrics: bool = False,
+) -> None:
+    db_path = get_financial_db_path(report_type, period)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 인덱스/컬럼이 문자열인지 확인
-    df = df.copy()
-    df.index = df.index.astype(str)
-    df.columns = df.columns.astype(str)
-    if df.empty:
-        return
-
     with sqlite3.connect(db_path) as conn:
-        ensure_table(conn, code)
-        ensure_columns(conn, code, df.columns)
-
-        insert_sql = (
-            f'INSERT INTO "{code}" (metric) VALUES (?) '
-            "ON CONFLICT(metric) DO NOTHING"
+        _write_dataframe(
+            conn,
+            report_type,
+            period,
+            code,
+            df,
+            drop_missing_metrics=drop_missing_metrics,
         )
-        conn.executemany(
-            insert_sql,
-            ((metric,) for metric in df.index),
-        )
-
-        for metric, row in df.iterrows():
-            assignments = []
-            params = []
-            for period_label, value in row.items():
-                if value is None or pd.isna(value):
-                    continue
-                assignments.append(f'"{period_label}" = ?')
-                params.append(float(value))
-
-            if not assignments:
-                continue
-
-            params.append(metric)
-            conn.execute(
-                f'UPDATE "{code}" SET {", ".join(assignments)} WHERE metric = ?',
-                params,
-            )
         conn.commit()
 
 
-def load_db(report_type: str, period: str, code: str) -> pd.DataFrame:
-    group_key = (report_type, period)
-    if group_key not in GROUP_DB_MAP:
-        raise ValueError(f"알 수 없는 그룹: {group_key}")
+def _read_table_frame(conn: sqlite3.Connection, code: str) -> pd.DataFrame:
+    return cast(
+        pd.DataFrame,
+        pd.read_sql_query(
+            f'SELECT * FROM "{code}"',
+            conn,
+            index_col="metric",
+        ),
+    )
 
-    db_path = GROUP_DB_MAP[group_key]
+
+def _normalize_loaded_frame(df: pd.DataFrame) -> pd.DataFrame:
+    converted = df.apply(pd.to_numeric, errors="coerce")
+    if isinstance(converted, pd.Series):
+        converted = converted.to_frame()
+    normalized = cast(pd.DataFrame, converted)
+    normalized.index = normalized.index.astype(str)
+    normalized.columns = normalized.columns.astype(str)
+    return normalized
+
+
+class FinancialDBReader:
+    def __init__(self, db_map: Mapping[GroupKey, Path] | None = None) -> None:
+        self._db_map = dict(db_map or GROUP_DB_MAP)
+        self._connections: dict[GroupKey, sqlite3.Connection] = {}
+        self._cache: dict[tuple[str, str, str], pd.DataFrame] = {}
+
+    def __enter__(self) -> FinancialDBReader:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        for conn in self._connections.values():
+            conn.close()
+        self._connections.clear()
+        self._cache.clear()
+
+    def _get_connection(self, report_type: str, period: str) -> sqlite3.Connection | None:
+        group_key = cast(GroupKey, (report_type, period))
+        db_path = self._db_map[group_key]
+        if not db_path.exists():
+            return None
+
+        conn = self._connections.get(group_key)
+        if conn is None:
+            conn = sqlite3.connect(db_path)
+            self._connections[group_key] = conn
+        return conn
+
+    def load_db(self, report_type: str, period: str, code: str) -> pd.DataFrame:
+        cache_key = (report_type, period, code)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached.copy()
+
+        conn = self._get_connection(report_type, period)
+        if conn is None:
+            result = pd.DataFrame()
+            self._cache[cache_key] = result
+            return result.copy()
+
+        try:
+            df = _read_table_frame(conn, code)
+        except (pd.errors.DatabaseError, sqlite3.OperationalError):
+            result = pd.DataFrame()
+            self._cache[cache_key] = result
+            return result.copy()
+
+        normalized = _normalize_loaded_frame(df)
+        self._cache[cache_key] = normalized
+        return normalized.copy()
+
+    def load_quarter_statements(self, code: str) -> tuple[pd.DataFrame, ...]:
+        return (
+            self.load_db("ratio", "quarter", code),
+            self.load_db("income", "quarter", code),
+            self.load_db("balance", "quarter", code),
+            self.load_db("cashflow", "quarter", code),
+        )
+
+    def prefetch_quarter_statements(self, codes: Iterable[str]) -> None:
+        for code in dict.fromkeys(str(code) for code in codes):
+            self.load_quarter_statements(code)
+
+
+def load_db(report_type: str, period: str, code: str) -> pd.DataFrame:
+    db_path = get_financial_db_path(report_type, period)
     if not db_path.exists():
         return pd.DataFrame()
 
     with sqlite3.connect(db_path) as conn:
         try:
-            df = pd.read_sql_query(
-                f'SELECT * FROM "{code}"',
-                conn,
-                index_col="metric",
-            )
+            df = _read_table_frame(conn, code)
         except (pd.errors.DatabaseError, sqlite3.OperationalError):
             return pd.DataFrame()
 
-    df = df.apply(pd.to_numeric, errors="coerce")
-    df.index = df.index.astype(str)
-    df.columns = df.columns.astype(str)
-    return df
-
+    return _normalize_loaded_frame(df)
