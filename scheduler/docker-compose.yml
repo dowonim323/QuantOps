@@ -1,6 +1,7 @@
 services:
   scheduler:
     container_name: quantops-scheduler
+    shm_size: '4gb'
     build:
       context: ..
       dockerfile: scheduler/Dockerfile
@@ -9,6 +10,9 @@ services:
       - ../logs:/app/logs
       - ../secrets:/app/secrets:ro
       - ../codes:/app/codes
+      - ../strategies:/app/strategies
+    env_file:
+      - ./.env
     environment:
       - PYTHONPATH=/app
       - TZ=Asia/Seoul
