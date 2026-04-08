@@ -16,7 +16,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
 from tools.selection_store import load_stock_selection
-from tools.financial_db import STOCK_SELECTION_DB_PATH
+from tools.financial_db import get_stock_selection_db_path
+from tools.trading_profiles import get_enabled_accounts, get_primary_selection_account
+from strategies import get_strategy_definition
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Change this to a random secret key
@@ -60,11 +62,103 @@ def auth_status():
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "account" / "daily_assets.db"
+ACCOUNT_DB_DIR = BASE_DIR / "db" / "account"
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+ENABLED_ACCOUNTS = tuple(get_enabled_accounts())
+ACCOUNT_MAP = {account.account_id: account for account in ENABLED_ACCOUNTS}
+PRIMARY_SELECTION_ACCOUNT = get_primary_selection_account(list(ENABLED_ACCOUNTS))
+
+
+def _resolve_account_id(raw_account_id):
+    if raw_account_id in (None, "", "all"):
+        return "all"
+
+    account_id = str(raw_account_id)
+    if account_id not in ACCOUNT_MAP:
+        raise KeyError(f"Unknown account_id: {account_id}")
+
+    return account_id
+
+
+def _resolve_account_db_path(account_id):
+    if account_id in (None, "", "default", "krx_vmq"):
+        return DB_PATH
+
+    return ACCOUNT_DB_DIR / f"daily_assets_{account_id}.db"
+
+
+def get_db_connection(account_id=None):
+    conn = sqlite3.connect(_resolve_account_db_path(account_id))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _get_selected_account_id():
+    return _resolve_account_id(request.args.get("account_id", "all"))
+
+
+def _iter_account_ids(selected_account_id):
+    if selected_account_id == "all":
+        return [account.account_id for account in ENABLED_ACCOUNTS]
+
+    return [selected_account_id]
+
+
+def _fetch_account_rows(query, *, selected_account_id, params=()):
+    rows = []
+    for account_id in _iter_account_ids(selected_account_id):
+        db_path = _resolve_account_db_path(account_id)
+        if not db_path.exists():
+            continue
+
+        with get_db_connection(account_id) as conn:
+            fetched = conn.execute(query, params).fetchall()
+
+        account = ACCOUNT_MAP[account_id]
+        for row in fetched:
+            item = dict(row)
+            item["account_id"] = account_id
+            item["account_display_name"] = account.display_name
+            rows.append(item)
+
+    return rows
+
+
+def _aggregate_asset_rows(rows):
+    grouped = {}
+    for row in rows:
+        date_key = row["date"]
+        if date_key not in grouped:
+            grouped[date_key] = {
+                "date": date_key,
+                "initial_asset": 0.0,
+                "final_asset": 0.0,
+                "deposit_d2": 0.0,
+                "transfer_amount": 0.0,
+            }
+
+        grouped_row = grouped[date_key]
+        for key in ("initial_asset", "final_asset", "deposit_d2", "transfer_amount"):
+            grouped_row[key] += row.get(key, 0.0) or 0.0
+
+    return [grouped[key] for key in sorted(grouped.keys())]
+
+
+@app.route('/api/accounts')
+def get_accounts():
+    accounts = [{
+        'account_id': 'all',
+        'display_name': 'All Accounts',
+    }]
+
+    if current_user.is_authenticated:
+        for account in ENABLED_ACCOUNTS:
+            accounts.append({
+                'account_id': account.account_id,
+                'display_name': account.display_name,
+            })
+
+    return jsonify({'accounts': accounts})
 
 @app.route('/')
 def index():
@@ -72,10 +166,14 @@ def index():
 
 @app.route('/api/assets')
 def get_assets():
-    conn = get_db_connection()
-    assets = conn.execute('SELECT * FROM daily_assets ORDER BY date').fetchall()
-    conn.close()
-    
+    selected_account_id = _get_selected_account_id()
+    assets = _fetch_account_rows(
+        'SELECT * FROM daily_assets ORDER BY date',
+        selected_account_id=selected_account_id,
+    )
+    if selected_account_id == 'all':
+        assets = _aggregate_asset_rows(assets)
+
     # Filter out incomplete days (where final_asset is None or 0)
     data = []
     for row in assets:
@@ -119,14 +217,21 @@ def get_assets():
 
 @app.route('/api/performance')
 def get_performance():
-    conn = get_db_connection()
-    perfs = conn.execute('SELECT * FROM daily_stock_performance ORDER BY date, symbol').fetchall()
-    assets = conn.execute('SELECT date, final_asset FROM daily_assets WHERE final_asset IS NOT NULL').fetchall()
-    conn.close()
-    
-    asset_map = {row['date']: row['final_asset'] for row in assets}
-    
-    data = [dict(row) for row in perfs]
+    selected_account_id = _get_selected_account_id()
+    perfs = _fetch_account_rows(
+        'SELECT * FROM daily_stock_performance ORDER BY date, symbol',
+        selected_account_id=selected_account_id,
+    )
+    assets = _fetch_account_rows(
+        'SELECT date, final_asset FROM daily_assets WHERE final_asset IS NOT NULL',
+        selected_account_id=selected_account_id,
+    )
+
+    asset_map = {}
+    for row in assets:
+        asset_map[row['date']] = asset_map.get(row['date'], 0.0) + (row['final_asset'] or 0.0)
+
+    data = perfs
     
     # Data Scrubbing for Guest Users
     if not current_user.is_authenticated:
@@ -176,26 +281,31 @@ def get_performance():
 
 @app.route('/api/orders')
 def get_orders():
-    conn = get_db_connection()
-    orders = conn.execute('SELECT * FROM daily_orders ORDER BY date DESC, time DESC').fetchall()
-    conn.close()
-    
-    data = [dict(row) for row in orders]
+    selected_account_id = _get_selected_account_id()
+    data = _fetch_account_rows(
+        'SELECT * FROM daily_orders ORDER BY date DESC, time DESC',
+        selected_account_id=selected_account_id,
+    )
+    data.sort(key=lambda row: (row['date'], row['time']), reverse=True)
     
     if not current_user.is_authenticated:
         for d in data:
             d['price'] = 0
-            d['quantity'] = 0
-            d['amount'] = 0
+            d['qty'] = 0
+            d['executed_qty'] = 0
             # Keep symbol, type, date, time
             
     return jsonify(data)
 
 @app.route('/api/analytics')
 def get_analytics():
-    conn = get_db_connection()
-    assets = conn.execute('SELECT * FROM daily_assets ORDER BY date ASC').fetchall()
-    conn.close()
+    selected_account_id = _get_selected_account_id()
+    assets = _fetch_account_rows(
+        'SELECT * FROM daily_assets ORDER BY date ASC',
+        selected_account_id=selected_account_id,
+    )
+    if selected_account_id == 'all':
+        assets = _aggregate_asset_rows(assets)
     
     # Filter out incomplete days
     data = []
@@ -314,10 +424,18 @@ def get_analytics():
 
 @app.route('/api/recommendations/dates')
 def get_recommendation_dates():
-    if not STOCK_SELECTION_DB_PATH.exists():
+    selected_account_id = _get_selected_account_id()
+    recommendation_account_id = PRIMARY_SELECTION_ACCOUNT.account_id if selected_account_id == 'all' else selected_account_id
+    strategy_id = ACCOUNT_MAP[recommendation_account_id].strategy_id
+    strategy_def = get_strategy_definition(strategy_id)
+    if not strategy_def.requires_selection:
+        return jsonify([])
+
+    db_path = get_stock_selection_db_path(strategy_id)
+    if not db_path.exists():
         return jsonify([])
     
-    with sqlite3.connect(STOCK_SELECTION_DB_PATH) as conn:
+    with sqlite3.connect(db_path) as conn:
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name DESC")
         tables = [row[0] for row in cursor.fetchall()]
         
@@ -328,7 +446,20 @@ def get_recommendation_dates():
 @app.route('/api/recommendations/<date>')
 def get_recommendations(date):
     try:
-        df = load_stock_selection(table_date=date, kis=None, rerank=False, top_n=20)
+        selected_account_id = _get_selected_account_id()
+        recommendation_account_id = PRIMARY_SELECTION_ACCOUNT.account_id if selected_account_id == 'all' else selected_account_id
+        strategy_id = ACCOUNT_MAP[recommendation_account_id].strategy_id
+        strategy_def = get_strategy_definition(strategy_id)
+        if not strategy_def.requires_selection:
+            return jsonify([])
+
+        df = load_stock_selection(
+            table_date=date,
+            kis=None,
+            rerank=False,
+            top_n=20,
+            strategy_id=strategy_id,
+        )
         if df.empty:
             return jsonify([])
         

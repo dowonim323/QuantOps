@@ -128,6 +128,18 @@
             </div>
         </nav>
 
+        <div class="glass-panel rounded-xl px-4 py-3 mb-6 flex items-center justify-between gap-4">
+            <div>
+                <p class="text-sm text-gray-300 font-medium">Account View</p>
+                <p class="text-xs text-gray-500">Authenticated users can switch between combined and per-account data.</p>
+            </div>
+            <select id="accountSelector"
+                onchange="handleAccountChange(this.value)"
+                class="bg-gray-900 border border-gray-700 text-gray-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="all">All Accounts</option>
+            </select>
+        </div>
+
         <!-- Navigation Tabs -->
         <div id="nav-menu"
             class="hidden sm:grid grid-cols-1 sm:grid-cols-5 gap-2 rounded-xl bg-gray-900/50 p-2 mb-8 backdrop-blur-sm border border-gray-800 transition-all duration-300">
@@ -565,6 +577,49 @@
         let currentAssetRange = '1M';
         let currentAssetMode = 'return'; // Default to 'return' for better UX
         let isAuthenticated = false;
+        let currentAccountId = 'all';
+        let availableAccounts = [];
+
+        function buildApiUrl(path) {
+            const url = new URL(path, window.location.origin);
+            url.searchParams.set('account_id', currentAccountId);
+            return `${url.pathname}${url.search}`;
+        }
+
+        async function loadAccounts() {
+            try {
+                const response = await fetch('/api/accounts');
+                const data = await response.json();
+                availableAccounts = data.accounts || [];
+                renderAccountOptions();
+            } catch (error) {
+                console.error('Account list load failed:', error);
+            }
+        }
+
+        function renderAccountOptions() {
+            const selector = document.getElementById('accountSelector');
+            if (!selector) return;
+
+            selector.innerHTML = '';
+            availableAccounts.forEach(account => {
+                const option = document.createElement('option');
+                option.value = account.account_id;
+                option.innerText = account.display_name;
+                selector.appendChild(option);
+            });
+
+            const validAccountIds = new Set(availableAccounts.map(account => account.account_id));
+            if (!validAccountIds.has(currentAccountId)) {
+                currentAccountId = 'all';
+            }
+            selector.value = currentAccountId;
+        }
+
+        function handleAccountChange(accountId) {
+            currentAccountId = accountId;
+            switchTab(currentTab);
+        }
 
         // Auth Functions
         async function checkAuthStatus() {
@@ -572,6 +627,7 @@
                 const response = await fetch('/api/auth/status');
                 const data = await response.json();
                 isAuthenticated = data.authenticated;
+                await loadAccounts();
                 updateAuthUI();
             } catch (error) {
                 console.error('Auth check failed:', error);
@@ -966,7 +1022,7 @@
 
         async function loadAssetChart() {
             try {
-                const response = await fetch('/api/assets');
+                const response = await fetch(buildApiUrl('/api/assets'));
                 const data = await response.json();
                 globalAssetData = data;
 
@@ -1223,7 +1279,7 @@
             try {
                 let data = globalPerformanceData;
                 if (!data) {
-                    const response = await fetch('/api/performance');
+                const response = await fetch(buildApiUrl('/api/performance'));
                     data = await response.json();
                     globalPerformanceData = data;
                 }
@@ -1530,7 +1586,7 @@
                     html += `
                         <tr class="hover:bg-gray-800/50 transition-colors cursor-pointer group whitespace-nowrap" onclick="openModal('${p.symbol}', '${p.name}')">
                             <td class="px-4 py-3 text-xs sm:text-sm font-medium text-gray-300 group-hover:text-white transition-colors">${p.symbol}</td>
-                            <td class="px-4 py-3 text-xs sm:text-sm text-gray-400 group-hover:text-gray-200 transition-colors">${p.name}</td>
+                            <td class="px-4 py-3 text-xs sm:text-sm text-gray-400 group-hover:text-gray-200 transition-colors">${p.name}${isAuthenticated && p.account_display_name ? `<br><span class="text-xs text-gray-500">${p.account_display_name}</span>` : ''}</td>
                             <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? quantity : '-'}</td>
                             <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? '₩' + formatKRW(p.invested_amount) : '-'}</td>
                             <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? '₩' + formatKRW(p.sell_amount) : '-'}</td>
@@ -1562,7 +1618,7 @@
 
         async function loadOrderHistory() {
             try {
-                const response = await fetch('/api/orders');
+                const response = await fetch(buildApiUrl('/api/orders'));
                 const data = await response.json();
                 globalOrderData = data;
                 renderOrderHistory(1);
@@ -1588,7 +1644,7 @@
                     <tr class="hover:bg-gray-800/50 transition-colors">
                         <td class="py-3 text-gray-500 text-xs">${o.date} <br> ${o.time}</td>
                         <td class="py-3 font-medium ${typeColor}">${typeLabel}</td>
-                        <td class="py-3 text-gray-300">${o.name}</td>
+                        <td class="py-3 text-gray-300">${o.name}${isAuthenticated && o.account_display_name ? `<br><span class="text-xs text-gray-500">${o.account_display_name}</span>` : ''}</td>
                         <td class="py-3 text-right text-gray-400">${isAuthenticated ? o.executed_qty : '-'}</td>
                         <td class="py-3 text-right text-gray-300 font-mono">${isAuthenticated ? '₩' + formatKRW(o.price) : '-'}</td>
                     </tr>
@@ -1660,7 +1716,7 @@
         // Analytics
         async function loadAnalytics() {
             try {
-                const response = await fetch('/api/analytics');
+                const response = await fetch(buildApiUrl('/api/analytics'));
                 const data = await response.json();
 
                 if (!data || Object.keys(data).length === 0) return;
@@ -1854,7 +1910,7 @@
 
         async function loadRecommendationDates() {
             try {
-                const response = await fetch('/api/recommendations/dates');
+                const response = await fetch(buildApiUrl('/api/recommendations/dates'));
                 const dates = await response.json();
 
                 availableRecDates = new Set(dates); // Store as Set for O(1) lookup: "YYYYMMDD"
@@ -1969,7 +2025,7 @@
             if (!date) return;
 
             try {
-                const response = await fetch(`/api/recommendations/${date}`);
+                const response = await fetch(buildApiUrl(`/api/recommendations/${date}`));
                 const data = await response.json();
 
                 const tbody = document.getElementById('recommendationsTableBody');

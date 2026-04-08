@@ -10,6 +10,7 @@ services:
       - .:/app/web
       - ../tools:/app/tools
       - ../pykis:/app/pykis
+      - ../strategies:/app/strategies
       - ../db:/app/db
       - ../logs:/app/logs
     environment:

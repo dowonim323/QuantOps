@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY web/ /app/web/
 COPY tools/ /app/tools/
 COPY pykis/ /app/pykis/
+COPY strategies/ /app/strategies/
 
 # Set python path to include root
 ENV PYTHONPATH=/app
