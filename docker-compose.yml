@@ -1,0 +1,39 @@
+services:
+  web:
+    container_name: kis-dashboard
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "15000:15000"
+    volumes:
+      - ./web:/app/web
+      - ./tools:/app/tools
+      - ./pykis:/app/pykis
+      - ./strategies:/app/strategies
+      - ./db:/app/db
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+    restart: always
+
+  scheduler:
+    container_name: quantops-scheduler
+    shm_size: '4gb'
+    build:
+      context: .
+      dockerfile: scheduler/Dockerfile
+    volumes:
+      - ./db:/app/db
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets:ro
+      - ./codes:/app/codes
+      - ./strategies:/app/strategies
+    env_file:
+      - ./scheduler/.env
+    environment:
+      - PYTHONPATH=/app
+      - TZ=Asia/Seoul
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
