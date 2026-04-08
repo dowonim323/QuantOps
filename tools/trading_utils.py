@@ -1206,6 +1206,7 @@ def rebalance(
     stocks_selected: Mapping[str, "KisStock"],
     *,
     cash_ratio: float,
+    target_weights: Mapping[str, float] | None = None,
     dry_run: bool = False,
     max_fill_ratio: float = 0.8,
     order_timeout: float | None = None,
@@ -1216,7 +1217,7 @@ def rebalance(
     max_sub_retries: int = 10,
 ) -> dict[str, list[Any]]:
     """
-    목표 종목을 동일 비중으로 보유하도록 계좌를 리밸런싱합니다.
+    목표 종목을 지정한 비중으로 보유하도록 계좌를 리밸런싱합니다.
 
     Workflow
     --------
@@ -1234,6 +1235,28 @@ def rebalance(
     target_codes = list(stocks_selected.keys())
     if not target_codes:
         raise ValueError("stocks_selected에는 최소 한 개의 종목이 필요합니다.")
+
+    def _resolve_target_values(balance_amount: float) -> dict[str, float]:
+        investable_amount = float(balance_amount) * (1 - cash_ratio)
+        if target_weights is None:
+            target_value = investable_amount / len(target_codes)
+            return {symbol: target_value for symbol in target_codes}
+
+        normalized_weights = {
+            str(symbol): float(weight)
+            for symbol, weight in target_weights.items()
+        }
+        if set(normalized_weights) != set(target_codes):
+            raise ValueError("target_weights symbols must exactly match stocks_selected keys.")
+
+        weight_sum = sum(normalized_weights.values())
+        if not math.isclose(weight_sum, 1.0, rel_tol=1e-9, abs_tol=1e-9):
+            raise ValueError(f"target_weights must sum to 1.0, got {weight_sum}")
+
+        return {
+            symbol: investable_amount * normalized_weights[symbol]
+            for symbol in target_codes
+        }
 
     account = kis.account()
 
@@ -1296,7 +1319,7 @@ def rebalance(
     def step2_attempt() -> tuple[list[Any], list[dict[str, Any]]]:
         balance = get_balance_safe(account, max_retries=max_retries, verbose=verbose)
         holdings = _snapshot_holdings(balance)
-        target_value = float(balance.amount) * (1 - cash_ratio) / len(target_codes)
+        target_values = _resolve_target_values(float(balance.amount))
         
         excess_positions: dict[str, tuple["KisStock", float, float]] = {}
         for symbol, stock in holdings.items():
@@ -1308,6 +1331,7 @@ def rebalance(
                 continue
 
             holding_value = float(getattr(stock, "amount", 0))
+            target_value = target_values[symbol]
             if holding_value <= target_value:
                 continue
 
@@ -1350,12 +1374,13 @@ def rebalance(
     def step3_attempt() -> tuple[list[Any], list[dict[str, Any]]]:
         balance = get_balance_safe(account, max_retries=max_retries, verbose=verbose)
         holdings = _snapshot_holdings(balance)
-        target_value = float(balance.amount) * (1 - cash_ratio) / len(target_codes)
+        target_values = _resolve_target_values(float(balance.amount))
         
         buy_candidates: dict[str, tuple["KisStock", float, float]] = {}
         for symbol, stock in stocks_selected.items():
             holding = holdings.get(symbol)
             holding_value = float(getattr(holding, "amount", 0)) if holding else 0.0
+            target_value = target_values[symbol]
 
             if holding_value >= target_value:
                 continue
@@ -1493,6 +1518,7 @@ def execute_rebalance_safe(
     check_alive: Callable[[], bool],
     context: str = "",
     cash_ratio: float = 0.03,
+    target_weights: Mapping[str, float] | None = None,
     order_timeout: float = 600,
     execution_timeout: float = 600,
     max_sub_retries: int = 10,
@@ -1506,6 +1532,7 @@ def execute_rebalance_safe(
             kis, 
             stocks_selected, 
             cash_ratio=cash_ratio, 
+            target_weights=target_weights,
             verbose=True, 
             order_timeout=order_timeout,
             execution_timeout=execution_timeout,
@@ -1547,4 +1574,3 @@ def execute_sell_all_safe(
         logger.error(f"Error during {context} sell: {e}", exc_info=True)
         send_notification("trade_execution", f"Error during {context} sell: {e}", title="Trading Error", tags=("warning",))
         return False
-

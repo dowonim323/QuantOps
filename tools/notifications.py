@@ -42,7 +42,12 @@ def send_notification(
         webhook_url = WEBHOOK_URLS.get(channel)
         if not webhook_url:
             logger.warning(f"Unknown channel '{channel}'. Defaulting to 'trade_execution'.")
-            webhook_url = WEBHOOK_URLS["trade_execution"]
+            webhook_url = WEBHOOK_URLS.get("trade_execution", "")
+
+        # Skip if no webhook URL is configured
+        if not webhook_url:
+            logger.warning(f"No webhook URL configured for channel '{channel}'. Skipping notification.")
+            return
 
         content = ""
         
@@ -56,6 +61,10 @@ def send_notification(
             content += f"**{title}**\n"
             
         content += message
+        
+        # Discord message limit: 2000 characters
+        if len(content) > 2000:
+            content = content[:1990] + "\n(...)"
         
         # Discord payload
         payload = {
