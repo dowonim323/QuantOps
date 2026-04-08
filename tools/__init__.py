@@ -1,9 +1,4 @@
-try:
-    from .crawler import get_driver, crawl_financial_data, RetryableError
-except ImportError:
-    get_driver = None
-    crawl_financial_data = None
-    RetryableError = None
+from .crawler import FinancialCrawler, RetryableError, crawl_financial_data
 
 from .financial_db import (
     DB_DIR,
@@ -19,8 +14,8 @@ from .financial_db import (
 from .notifications import send_notification
 
 __all__ = [
+    "FinancialCrawler",
     "RetryableError",
-    "get_driver",
     "crawl_financial_data",
     "DB_DIR",
     "DB_HISTORY_DIR",
@@ -33,4 +28,3 @@ __all__ = [
     "update_db",
     "send_notification",
 ]
-
