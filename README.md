@@ -23,7 +23,7 @@
 ### 🤖 Automated Trading Bot
 - **Smart Execution**: Auto-executes buy/sell orders with precision.
 - **Risk Management**: Built-in position sizing and stop-loss mechanisms.
-- **Auto-Rebalancing**: Maintains optimal portfolio allocation automatically.
+- **Trading Session Automation**: Orchestrates market-open execution and end-of-day handling automatically.
 - **Retry Logic**: Automatically retries unfilled orders when orderbook prices are unfavorable.
 - **Discord Notifications**: Real-time alerts for order status and unfilled orders.
 - **Supervisor-Native Scheduling**: Runs nightly preparation and trading-day control as long-lived supervisor-managed controllers.
@@ -162,7 +162,7 @@ QuantOps/
 ├── 📁 pipelines/
 │   ├── 📄 financial_crawler.py       # Financial data collection pipeline
 │   ├── 📄 stock_selection.py         # Quantitative stock selection pipeline
-│   ├── 📄 autorebalance.py           # Trading session runner
+│   ├── 📄 trading_session.py         # Trading session runner
 │   ├── 📄 nightly_prep_controller.py # Supervisor-managed nightly prep controller
 │   ├── 📄 trading_day_controller.py  # Supervisor-managed trading-day controller
 │   └── 📄 scheduler_admin.py         # Scheduler state inspection/admin CLI
