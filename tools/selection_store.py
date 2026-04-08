@@ -6,10 +6,10 @@ from datetime import date, datetime
 from typing import Any, Optional, Union
 
 import pandas as pd
-from pykis import PyKis
-from pykis.api.stock.quote import quote as fetch_quote
+from pykis import MARKET_TYPE, PyKis
 
-from tools.financial_db import DB_DIR, STOCK_SELECTION_DB_PATH
+from tools.financial_db import DB_DIR, get_stock_selection_db_path
+from tools.kis_batch_quote import fetch_latest_quotes_batch
 from tools.quant_utils import (
     MOMENTUM_METRICS,
     QUALITY_METRICS,
@@ -17,6 +17,8 @@ from tools.quant_utils import (
     apply_custom_selection_filters,
     apply_risk_filters,
     apply_smallcap_filter,
+    create_stock_objects,
+    get_average_amount,
     get_rank,
 )
 from .time_utils import today_kst
@@ -55,6 +57,8 @@ def _normalize_selection_table_name(
 def save_stock_selection(
     df: pd.DataFrame,
     table_date: Union[str, date, datetime, None] = None,
+    *,
+    strategy_id: str | None = None,
 ) -> None:
     """종목 선정 스냅샷을 날짜별 테이블에 저장합니다."""
     required_columns = {"단축코드", "한글명"}
@@ -63,10 +67,39 @@ def save_stock_selection(
         raise KeyError(f"다음 컬럼이 필요합니다: {missing}")
 
     table_name = _normalize_selection_table_name(table_date)
+    db_path = get_stock_selection_db_path(strategy_id)
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(STOCK_SELECTION_DB_PATH) as conn:
+    with sqlite3.connect(db_path) as conn:
         df.to_sql(table_name, conn, if_exists="replace", index=False)
+
+
+def get_saved_selection_row_count(
+    table_date: Union[str, date, datetime, None] = None,
+    *,
+    strategy_id: str | None = None,
+) -> int | None:
+    db_path = get_stock_selection_db_path(strategy_id)
+    if not db_path.exists():
+        return None
+
+    table_name = _normalize_selection_table_name(table_date)
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        )
+        if cursor.fetchone() is None:
+            return None
+
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM '{table_name}'",
+        ).fetchone()
+
+    if row is None:
+        return 0
+
+    return int(row[0])
 
 
 _ALLOWED_MARKETS = {
@@ -86,7 +119,7 @@ _ALLOWED_MARKETS = {
 }
 
 
-def _resolve_market_type(raw_market: Any) -> str:
+def _resolve_market_type(raw_market: Any) -> MARKET_TYPE:
     """시장 정보를 PyKis가 이해하는 MARKET_TYPE 문자열로 변환."""
     if raw_market is None:
         return "KRX"
@@ -99,7 +132,22 @@ def _resolve_market_type(raw_market: Any) -> str:
     if normalized in {"KOSPI", "KOSDAQ", "KONEX"}:
         return "KRX"
 
-    return normalized
+    if normalized == "KRX":
+        return "KRX"
+    if normalized == "NASDAQ":
+        return "NASDAQ"
+    if normalized == "NYSE":
+        return "NYSE"
+    if normalized == "AMEX":
+        return "AMEX"
+    if normalized == "TYO":
+        return "TYO"
+    if normalized == "HKEX":
+        return "HKEX"
+    if normalized == "HNX":
+        return "HNX"
+
+    return "KRX"
 
 
 def _fetch_latest_quotes(
@@ -108,38 +156,20 @@ def _fetch_latest_quotes(
     retry: int = 5,
 ) -> pd.DataFrame:
     """종목별 최신 가격과 시가총액을 수집해 병합합니다."""
-    records: list[dict[str, Any]] = []
-
-    unique_codes = (
-        df.loc[:, ["단축코드", "시장구분"]]
-        if "시장구분" in df.columns
-        else df.loc[:, ["단축코드"]].assign(시장구분=None)
+    return fetch_latest_quotes_batch(
+        df,
+        kis,
+        retry=retry,
+        progress_desc="Fetching Quotes",
     )
 
-    for _, row in tqdm(unique_codes.drop_duplicates(subset=["단축코드"]).iterrows(), total=unique_codes["단축코드"].nunique(), desc="Fetching Quotes"):
-        code = row["단축코드"]
-        market = _resolve_market_type(row.get("시장구분"))
-        price = None
-        market_cap = None
 
-        for attempt in range(retry):
-            try:
-                quote = fetch_quote(kis, symbol=code, market=market)
-                raw_price = getattr(quote, "price", None)
-                raw_cap = getattr(quote, "market_cap", None)
-                price = float(raw_price) if raw_price is not None else None
-                market_cap = float(raw_cap) if raw_cap is not None else None
-                break
-            except Exception as exc:  # noqa: BLE001
-                if attempt == retry - 1:
-                    tqdm.write(f"시세 조회 실패 ({code}/{market}): {exc}")
-                continue
-
-        records.append({"단축코드": code, "price": price, "market_cap": market_cap})
-
-    df_quotes = pd.DataFrame(records)
-    merged = df.merge(df_quotes, on="단축코드", how="left")
-    return merged
+def _fetch_latest_amounts(
+    df: pd.DataFrame,
+    kis: PyKis,
+) -> pd.DataFrame:
+    stocks = create_stock_objects(df, kis)
+    return get_average_amount(df, stocks)
 
 
 def _recalculate_dynamic_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -202,12 +232,14 @@ def load_stock_selection(
     kis: PyKis,
     rerank: bool = True,
     top_n: Optional[int] = 20,
+    strategy_id: str | None = None,
 ) -> pd.DataFrame:
     """저장된 날짜별 종목 선정을 DataFrame으로 읽어옵니다."""
-    if not STOCK_SELECTION_DB_PATH.exists():
+    db_path = get_stock_selection_db_path(strategy_id)
+    if not db_path.exists():
         raise KeyError("저장된 종목 선정 테이블이 없습니다.")
 
-    with sqlite3.connect(STOCK_SELECTION_DB_PATH) as conn:
+    with sqlite3.connect(db_path) as conn:
         if table_date is None:
             tables = [
                 row[0]
@@ -244,13 +276,13 @@ def load_stock_selection(
         if kis is None:
             raise ValueError("kis 인스턴스가 필요합니다.")
         
-        # 재랭킹 시에는 DB에 저장된 과거 가격/시가총액 정보를 제거하고 새로 조회
-        cols_to_drop = [c for c in ["price", "market_cap"] if c in df.columns]
+        cols_to_drop = [c for c in ["price"] if c in df.columns]
         if cols_to_drop:
             df = df.drop(columns=cols_to_drop)
             
         df_with_quotes = _fetch_latest_quotes(df, kis)
-        if df_with_quotes["price"].isna().all():
+        price_series = pd.Series(df_with_quotes["price"])
+        if bool(price_series.isna().all()):
             logger.warning("가격 정보를 불러오지 못해 저장된 데이터를 그대로 사용합니다.")
         else:
             df_for_rank = _recalculate_dynamic_metrics(df_with_quotes)
@@ -270,7 +302,24 @@ def load_stock_selection(
         quality_metrics=QUALITY_METRICS,
     )
 
-    df_post_custom = apply_custom_selection_filters(df_ranked)
+    df_for_custom = df_ranked
+    if rerank:
+        df_with_amount = _fetch_latest_amounts(df_ranked, kis)
+        amount_series = (
+            pd.Series(df_with_amount["amount"], index=df_with_amount.index)
+            if "amount" in df_with_amount.columns
+            else pd.Series(dtype=float)
+        )
+
+        if amount_series.empty or bool(amount_series.isna().all()):
+            logger.warning("거래대금 정보를 불러오지 못해 기존 amount 값을 사용합니다.")
+        else:
+            df_for_custom = df_with_amount.copy()
+            if "amount" in df_ranked.columns:
+                fallback_amount = pd.Series(df_ranked["amount"], index=df_ranked.index)
+                df_for_custom["amount"] = amount_series.combine_first(fallback_amount)
+
+    df_post_custom = apply_custom_selection_filters(df_for_custom)
     if df_post_custom.empty:
         return df_post_custom
 
@@ -278,5 +327,8 @@ def load_stock_selection(
     return _trim_result(df_ranked, top_n)
 
 
-__all__ = ["save_stock_selection", "load_stock_selection"]
-
+__all__ = [
+    "get_saved_selection_row_count",
+    "load_stock_selection",
+    "save_stock_selection",
+]
