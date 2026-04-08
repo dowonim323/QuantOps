@@ -4,24 +4,27 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal, TypeAlias, cast
 
+import pandas as pd
 from tqdm import tqdm
 
 from tools.crawler import (
-    get_driver,
     FinancialCrawler,
+    UnsupportedWiseReportSymbol,
 )
 from tools.financial_db import (
     backup_databases,
-    update_db,
+    FinancialDBBatchWriter,
 )
 from tools.market_master import download_code_master, get_kospi_kosdaq_master_dataframe
 from tools.notifications import send_notification
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-ReportTask = tuple[str, str]
+ReportType: TypeAlias = Literal["ratio", "income", "balance", "cashflow"]
+ReportPeriod: TypeAlias = Literal["year", "quarter"]
+ReportTask = tuple[ReportType, ReportPeriod]
 
 REPORT_TASKS: tuple[ReportTask, ...] = (
     ("ratio", "year"),
@@ -40,10 +43,10 @@ DEFAULT_NOTIFICATION_CHANNEL = "financial_crawling"
 def _resolve_max_workers(max_workers: int | None) -> int:
     """최대 워커 수를 결정합니다."""
     if max_workers is not None and max_workers > 0:
-        return max(1, min(max_workers, 8))
+        return max(1, min(max_workers, 16))
 
     logical_cores = os.cpu_count() or 1
-    return max(1, min(logical_cores, 8))
+    return max(1, min(logical_cores, 16))
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -83,8 +86,8 @@ def prepare_code_metadata(code_dir: Path) -> tuple[pd.Series, pd.Series]:
     df_codes["단축코드"] = df_codes["단축코드"].astype(str)
     df_codes["한글명"] = df_codes["한글명"].astype(str)
 
-    codes = df_codes["단축코드"]
-    names = df_codes.set_index("단축코드")["한글명"]
+    codes = cast(pd.Series, df_codes["단축코드"])
+    names = cast(pd.Series, df_codes.set_index("단축코드")["한글명"])
     return codes, names
 
 
@@ -93,33 +96,29 @@ def fetch_reports(
     tasks: Iterable[ReportTask],
     max_retry: int = 10,
 ) -> tuple[list[tuple[str, str, Any]], list[str]]:
-    """단일 종목에 대한 모든 리포트를 크롤링합니다. 에러 발생 시 드라이버를 재시작합니다."""
     results: list[tuple[str, str, Any]] = []
     failures: list[str] = []
 
-    driver = get_driver()
-    crawler = FinancialCrawler(driver)
+    crawler = FinancialCrawler()
 
     try:
         for report_type, period in tasks:
-            for attempt in range(max_retry):
-                try:
-                    data = crawler.crawl(code, report_type, period=period)
-                    results.append((report_type, period, data))
-                    break
-                except Exception as exc:
-                    if attempt < max_retry - 1:
-                        try:
-                            driver.quit()
-                        except Exception:
-                            pass
-                        driver = get_driver()
-                        crawler = FinancialCrawler(driver)
-                    else:
-                        short_exc = _short_exception_message(exc)
-                        failures.append(f"{report_type}:{period} - exception occurred ({short_exc})")
+            try:
+                data = crawler.crawl(
+                    code,
+                    report_type,
+                    period=period,
+                    max_retries=max_retry,
+                )
+                results.append((report_type, period, data))
+            except UnsupportedWiseReportSymbol as exc:
+                failures.append(f"skipped ({_short_exception_message(exc)})")
+                break
+            except Exception as exc:
+                short_exc = _short_exception_message(exc)
+                failures.append(f"{report_type}:{period} - exception occurred ({short_exc})")
     finally:
-        driver.quit()
+        crawler.close()
 
     return results, failures
 
@@ -150,10 +149,10 @@ def _run_parallel(
             executor.submit(
                 _process_single_code,
                 code,
-                names.get(code, ""),
+                str(names.get(code, "")),
                 tasks,
                 max_retry=10,
-            ): (code, names.get(code, ""))
+            ): (code, str(names.get(code, "")))
             for code in codes
         }
 
@@ -175,11 +174,10 @@ def _run_parallel(
                         failures.append(f"{code} ({company_name}) - {joined}")
                     else:
                         successful_codes.add(code)
-
-                    for report_type, period, data in results:
-                        collected_reports.append(
-                            (report_type, period, code, company_name, data)
-                        )
+                        for report_type, period, data in results:
+                            collected_reports.append(
+                                (report_type, period, code, company_name, data)
+                            )
 
                 progress.update(1)
 
@@ -194,20 +192,33 @@ def _apply_updates(
     collected_list = list(collected_reports)
     failures: list[str] = []
     failed_codes: set[str] = set()
+    reports_by_code: dict[str, list[tuple[str, str, str, str, Any]]] = {}
 
-    with tqdm(total=len(collected_list), desc="DB Update", unit="tasks") as progress:
-        for report_type, period, code, company_name, data in collected_list:
-            try:
-                update_db(report_type, period, code, data)
-            except Exception as exc:
-                short_exc = _short_exception_message(exc)
-                failure_message = (
-                    f"{code} ({company_name}) - update failed for {report_type}:{period}: {short_exc}"
-                )
-                failures.append(failure_message)
-                failed_codes.add(code)
-            finally:
-                progress.update(1)
+    for report in collected_list:
+        reports_by_code.setdefault(report[2], []).append(report)
+
+    with FinancialDBBatchWriter() as batch_writer:
+        with tqdm(total=len(collected_list), desc="DB Update", unit="tasks") as progress:
+            for code_reports in reports_by_code.values():
+                code, company_name = code_reports[0][2], code_reports[0][3]
+
+                try:
+                    batch_writer.write_symbol_reports(
+                        [
+                            (report_type, period, code, data)
+                            for report_type, period, _code, _company_name, data in code_reports
+                        ],
+                        drop_missing_metrics=True,
+                    )
+                except Exception as exc:
+                    short_exc = _short_exception_message(exc)
+                    failure_message = (
+                        f"{code} ({company_name}) - update failed: {short_exc}"
+                    )
+                    failures.append(failure_message)
+                    failed_codes.add(code)
+                finally:
+                    progress.update(len(code_reports))
 
     for code in failed_codes:
         successful_codes.discard(code)
