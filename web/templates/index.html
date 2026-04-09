@@ -109,9 +109,9 @@
                         class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
                         Analytics
                     </button>
-                    <button onclick="switchTab('recommendations'); toggleMobileMenu()"
+                    <button onclick="switchTab('selection'); toggleMobileMenu()"
                         class="text-left px-4 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
-                        Recommendations
+                        Selection
                     </button>
                 </div>
 
@@ -130,13 +130,13 @@
 
         <div class="glass-panel rounded-xl px-4 py-3 mb-6 flex items-center justify-between gap-4">
             <div>
-                <p class="text-sm text-gray-300 font-medium">Account View</p>
-                <p class="text-xs text-gray-500">Authenticated users can switch between combined and per-account data.</p>
+                <p class="text-sm text-gray-300 font-medium">Strategy View</p>
+                <p class="text-xs text-gray-500">Switch between combined and per-strategy dashboard data.</p>
             </div>
-            <select id="accountSelector"
-                onchange="handleAccountChange(this.value)"
+            <select id="strategySelector"
+                onchange="handleStrategyChange(this.value)"
                 class="bg-gray-900 border border-gray-700 text-gray-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="all">All Accounts</option>
+                <option value="all">All Strategies</option>
             </select>
         </div>
 
@@ -159,9 +159,9 @@
                 class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50">
                 Analytics
             </button>
-            <button onclick="switchTab('recommendations')" id="tab-recommendations"
+            <button onclick="switchTab('selection')" id="tab-selection"
                 class="w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200 border-b-2 border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50">
-                Recommendations
+                Selection
             </button>
         </div>
 
@@ -215,117 +215,21 @@
             </section>
         </div>
 
-        <div id="content-portfolio" class="tab-content hidden">
-            <!-- Portfolio Summary & Charts -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Summary Cards -->
-                <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="glass-panel rounded-xl p-4 flex items-center justify-between">
-                        <div>
-                            <p class="text-sm text-gray-400">Total Invested</p>
-                            <p class="text-2xl font-bold text-white" id="portTotalInvested">-</p>
-                        </div>
-                        <div class="p-3 bg-blue-500/10 rounded-lg text-blue-400">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
-                                </path>
-                            </svg>
-                        </div>
-                    </div>
-                    <div class="glass-panel rounded-xl p-4 flex items-center justify-between">
-                        <div>
-                            <p class="text-sm text-gray-400">Current Valuation</p>
-                            <p class="text-2xl font-bold text-white" id="portCurrentValue">-</p>
-                        </div>
-                        <div class="p-3 bg-purple-500/10 rounded-lg text-purple-400">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
-                                </path>
-                            </svg>
-                        </div>
-                    </div>
-                    <div class="glass-panel rounded-xl p-4 flex items-center justify-between">
-                        <div>
-                            <p class="text-sm text-gray-400">Total Profit/Loss</p>
-                            <p class="text-2xl font-bold text-gray-300" id="portTotalProfit">-</p>
-                        </div>
-                        <div class="p-3 bg-green-500/10 rounded-lg text-green-400">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                            </svg>
-                        </div>
-                    </div>
+        <div id="content-portfolio" class="tab-content hidden space-y-6">
+            <section class="glass-panel rounded-2xl p-6 shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h2 class="text-xl font-semibold text-gray-200">Strategy Portfolio</h2>
+                    <p class="text-sm text-gray-500">Portfolio summary, allocation, and holdings are grouped by strategy when viewing all strategies.</p>
                 </div>
-
-                <!-- Allocation Chart -->
-                <div
-                    class="glass-panel rounded-2xl p-6 shadow-xl lg:col-span-1 h-[600px] flex flex-col overflow-y-auto custom-scrollbar">
-                    <h2 class="text-lg font-semibold text-gray-200 mb-4">Asset Allocation</h2>
-                    <div class="relative h-72 w-full flex justify-center">
-                        <canvas id="allocationChart"></canvas>
-                    </div>
-                    <!-- Custom Legend -->
-                    <div id="allocationLegend" class="mt-6 grid grid-cols-4 gap-1 sm:gap-2"></div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="hideSoldToggle"
+                        class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                        onchange="loadStockPerformance(true, true)">
+                    <label for="hideSoldToggle" class="ml-2 text-sm font-medium text-gray-300">Hide Sold Stocks</label>
                 </div>
-
-                <!-- Stock Table -->
-                <section class="glass-panel rounded-2xl p-6 shadow-xl lg:col-span-2 h-[600px] flex flex-col">
-                    <div
-                        class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
-                        <h2 class="text-xl font-semibold text-gray-200 flex items-center">
-                            <svg class="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor"
-                                viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                            </svg>
-                            Holdings
-                        </h2>
-                        <div class="flex items-center">
-                            <input type="checkbox" id="hideSoldToggle"
-                                class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-                                onchange="loadStockPerformance(true, true)">
-                            <label for="hideSoldToggle" class="ml-2 text-sm font-medium text-gray-300">Hide
-                                Sold
-                                Stocks</label>
-                        </div>
-                    </div>
-                    <div class="overflow-auto flex-1 custom-scrollbar">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr
-                                    class="text-gray-400 text-[10px] sm:text-xs uppercase tracking-wider border-b border-gray-800 whitespace-nowrap sticky top-0 z-10 bg-[#111827]">
-                                    <th class="px-4 py-4 font-medium cursor-pointer hover:text-white transition-colors select-none w-[10%]"
-                                        onclick="sortPortfolio('symbol')">Symbol <span id="sort-symbol"></span></th>
-                                    <th class="px-4 py-4 font-medium cursor-pointer hover:text-white transition-colors select-none w-[25%]"
-                                        onclick="sortPortfolio('name')">Name <span id="sort-name"></span>
-                                    </th>
-                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[10%]"
-                                        onclick="sortPortfolio('quantity')">Qty <span id="sort-quantity"></span></th>
-                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]"
-                                        onclick="sortPortfolio('invested_amount')">Invested <span
-                                            id="sort-invested_amount"></span></th>
-                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]"
-                                        onclick="sortPortfolio('sell_amount')">Sold <span id="sort-sell_amount"></span>
-                                    </th>
-                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[10%]"
-                                        onclick="sortPortfolio('return')">Return <span id="sort-return"></span></th>
-                                    <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]"
-                                        onclick="sortPortfolio('current_value')">Value (KRW) <span
-                                            id="sort-current_value"></span></th>
-                                </tr>
-                            </thead>
-                            <tbody id="stockPerformance" class="text-sm divide-y divide-gray-800/50">
-                                <tr>
-                                    <td colspan="7" class="py-4 text-center text-gray-500">Loading data...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
+            </section>
+            <div id="portfolioSections" class="space-y-6">
+                <div class="glass-panel rounded-2xl p-8 text-center text-gray-500">Loading portfolio...</div>
             </div>
         </div>
 
@@ -410,43 +314,28 @@
             </section>
         </div>
 
-        <!-- Recommendations Content -->
-        <div id="content-recommendations" class="tab-content hidden space-y-6">
+        <div id="content-selection" class="tab-content hidden space-y-6">
             <div class="glass-panel rounded-2xl p-6">
                 <div
                     class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
-                    <h2 class="text-xl font-bold text-white">Daily Stock Recommendations</h2>
-                    <button id="recommendationDateBtn" onclick="openRecommendationDateModal()"
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Daily Selection</h2>
+                        <p class="text-sm text-gray-500 mt-1">View saved selection snapshots for the active strategy scope.</p>
+                    </div>
+                    <button id="selectionDateBtn" onclick="openSelectionDateModal()"
                         class="flex items-center space-x-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm rounded-lg px-4 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z">
                             </path>
                         </svg>
-                        <span id="recommendationDateText">Select Date</span>
+                        <span id="selectionDateText">Select Date</span>
                     </button>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm text-left text-gray-400">
-                        <thead class="text-xs text-gray-500 uppercase bg-gray-800/50">
-                            <tr>
-                                <th scope="col" class="px-4 py-3 rounded-tl-lg">#</th>
-                                <th scope="col" class="px-4 py-3">Code</th>
-                                <th scope="col" class="px-4 py-3">Name</th>
-                                <th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Value Rank
-                                </th>
-                                <th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Momentum
-                                    Rank</th>
-                                <th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Quality
-                                    Rank</th>
-                                <th scope="col" class="px-4 py-3 text-right rounded-tr-lg hidden sm:table-cell">Total
-                                    Rank</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recommendationsTableBody">
-                            <!-- Rows will be injected here -->
-                        </tbody>
-                    </table>
+                <div id="selectionSections" class="space-y-6">
+                    <div class="rounded-xl border border-dashed border-gray-700 bg-gray-900/40 px-6 py-12 text-center text-gray-500">
+                        Select a date to view strategy selection.
+                    </div>
                 </div>
             </div>
         </div>
@@ -503,21 +392,20 @@
         </div>
     </div>
 
-    <!-- Recommendation Date Picker Modal -->
-    <div id="recommendationDateModal"
+    <div id="selectionDateModal"
         class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center z-50 opacity-0 transition-opacity duration-300">
         <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
-            id="recDateModalContent">
+            id="selectionDateModalContent">
             <div class="flex justify-between items-center mb-6">
-                <button onclick="changeRecCalendarMonth(-1)"
+                <button onclick="changeSelectionCalendarMonth(-1)"
                     class="text-gray-400 hover:text-white transition-colors p-1">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
                         </path>
                     </svg>
                 </button>
-                <h2 class="text-xl font-bold text-white" id="recCalendarTitle">Month Year</h2>
-                <button onclick="changeRecCalendarMonth(1)"
+                <h2 class="text-xl font-bold text-white" id="selectionCalendarTitle">Month Year</h2>
+                <button onclick="changeSelectionCalendarMonth(1)"
                     class="text-gray-400 hover:text-white transition-colors p-1">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
@@ -525,7 +413,7 @@
                 </button>
             </div>
 
-            <div id="recCalendarGrid" class="grid grid-cols-7 gap-1 text-center mb-4">
+            <div id="selectionCalendarGrid" class="grid grid-cols-7 gap-1 text-center mb-4">
                 <!-- Headers -->
                 <div class="text-gray-500 text-xs font-medium py-2">Sun</div>
                 <div class="text-gray-500 text-xs font-medium py-2">Mon</div>
@@ -537,7 +425,7 @@
             </div>
 
             <div class="flex justify-end">
-                <button onclick="closeRecDateModal()"
+                <button onclick="closeSelectionDateModal()"
                     class="text-gray-400 hover:text-white text-sm px-3 py-1">Close</button>
             </div>
         </div>
@@ -573,51 +461,266 @@
         // Global State
         let currentTab = 'dashboard';
         let globalAssetData = [];
-        let globalPerformanceData = null; // Cache for performance data
+        let currentPerformanceData = [];
         let currentAssetRange = '1M';
-        let currentAssetMode = 'return'; // Default to 'return' for better UX
+        let currentAssetMode = 'return';
         let isAuthenticated = false;
-        let currentAccountId = 'all';
-        let availableAccounts = [];
+        let currentStrategyId = 'all';
+        let availableStrategies = [{
+            strategy_id: 'all',
+            display_name: 'All Strategies',
+            requires_selection: false,
+        }];
+        let selectedSelectionDateByStrategy = {};
+        let globalAnalyticsData = null;
+        let availableSelectionDates = new Set();
+        let currentSelectionCalendarDate = new Date();
+        let allocationChartInstances = {};
+        let requestTokens = {
+            asset: 0,
+            portfolio: 0,
+            orders: 0,
+            analytics: 0,
+            selectionDates: 0,
+            selection: 0,
+        };
 
         function buildApiUrl(path) {
             const url = new URL(path, window.location.origin);
-            url.searchParams.set('account_id', currentAccountId);
+            url.searchParams.set('strategy_id', currentStrategyId);
             return `${url.pathname}${url.search}`;
         }
 
-        async function loadAccounts() {
+        function nextRequestToken(key) {
+            requestTokens[key] = (requestTokens[key] || 0) + 1;
+            return requestTokens[key];
+        }
+
+        function invalidateRequestTokens() {
+            Object.keys(requestTokens).forEach((key) => {
+                requestTokens[key] += 1;
+            });
+        }
+
+        function isCurrentRequestToken(key, token, requestedStrategyId) {
+            return requestTokens[key] === token && requestedStrategyId === currentStrategyId;
+        }
+
+        function resolveErrorMessage(payload, fallbackMessage) {
+            if (payload && typeof payload === 'object' && typeof payload.error === 'string' && payload.error) {
+                return payload.error;
+            }
+
+            return fallbackMessage;
+        }
+
+        async function fetchJson(path, fallbackMessage) {
+            const response = await fetch(buildApiUrl(path));
+            let payload = null;
+
             try {
-                const response = await fetch('/api/accounts');
-                const data = await response.json();
-                availableAccounts = data.accounts || [];
-                renderAccountOptions();
-            } catch (error) {
-                console.error('Account list load failed:', error);
+                payload = await response.json();
+            } catch (_error) {
+                payload = null;
+            }
+
+            if (!response.ok) {
+                throw new Error(resolveErrorMessage(payload, fallbackMessage));
+            }
+
+            return payload;
+        }
+
+        function sanitizeDomId(value) {
+            return String(value || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatSelectionDate(dateStr) {
+            if (/^\d{8}$/.test(dateStr || '')) {
+                return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+            }
+
+            return dateStr || 'Select Date';
+        }
+
+        function getStrategyOptions(includeAll = false) {
+            return availableStrategies.filter((strategy) => includeAll || strategy.strategy_id !== 'all');
+        }
+
+        function getCurrentStrategy() {
+            return availableStrategies.find((strategy) => strategy.strategy_id === currentStrategyId) || {
+                strategy_id: currentStrategyId,
+                display_name: currentStrategyId === 'all' ? 'All Strategies' : currentStrategyId,
+                requires_selection: false,
+            };
+        }
+
+        function getStrategyDisplayName(strategyId) {
+            return availableStrategies.find((strategy) => strategy.strategy_id === strategyId)?.display_name
+                || (strategyId === 'all' ? 'All Strategies' : strategyId);
+        }
+
+        function setSelectionDateLabel(dateStr) {
+            const label = document.getElementById('selectionDateText');
+            if (label) {
+                label.innerText = formatSelectionDate(dateStr);
             }
         }
 
-        function renderAccountOptions() {
-            const selector = document.getElementById('accountSelector');
+        function clearPortfolioView(message = 'Loading portfolio...') {
+            destroyAllocationCharts();
+            const container = document.getElementById('portfolioSections');
+            if (container) {
+                container.innerHTML = `<div class="glass-panel rounded-2xl p-8 text-center text-gray-500">${escapeHtml(message)}</div>`;
+            }
+        }
+
+        function clearAssetView(message = 'No asset data available.') {
+            globalAssetData = [];
+            if (assetChartInstance) {
+                assetChartInstance.destroy();
+                assetChartInstance = null;
+            }
+
+            const balance = document.getElementById('currentBalance');
+            if (balance) {
+                balance.innerText = message;
+                balance.className = 'text-sm font-medium text-gray-500';
+            }
+        }
+
+        function clearOrderHistoryView(message = 'No orders found.') {
+            const table = document.getElementById('recentOrders');
+            const pagination = document.getElementById('orderPagination');
+
+            if (table) {
+                table.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-gray-500">${escapeHtml(message)}</td></tr>`;
+            }
+            if (pagination) {
+                pagination.innerHTML = '';
+            }
+        }
+
+        function clearAnalyticsView(message = 'No analytics data available.') {
+            globalAnalyticsData = null;
+
+            if (dailyProfitChartInstance) {
+                dailyProfitChartInstance.destroy();
+                dailyProfitChartInstance = null;
+            }
+            if (mddChartInstance) {
+                mddChartInstance.destroy();
+                mddChartInstance = null;
+            }
+
+            ['metricWinRate', 'metricBestDay', 'metricWorstDay', 'metricVolatility'].forEach((id) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.innerText = '-';
+                }
+            });
+
+            const heatmap = document.getElementById('monthlyHeatmap');
+            if (heatmap) {
+                heatmap.innerHTML = `<div class="text-center text-gray-500 py-4 col-span-full">${escapeHtml(message)}</div>`;
+            }
+        }
+
+        function clearSelectionView(message = 'Select a date to view strategy selection.') {
+            const container = document.getElementById('selectionSections');
+            if (container) {
+                container.innerHTML = `<div class="rounded-xl border border-dashed border-gray-700 bg-gray-900/40 px-6 py-12 text-center text-gray-500">${escapeHtml(message)}</div>`;
+            }
+        }
+
+        function destroyAllocationCharts() {
+            Object.values(allocationChartInstances).forEach((chart) => {
+                if (chart) {
+                    chart.destroy();
+                }
+            });
+            allocationChartInstances = {};
+        }
+
+        function resetStrategyScopedState() {
+            invalidateRequestTokens();
+            globalAssetData = [];
+            currentPerformanceData = [];
+            globalAnalyticsData = null;
+            globalOrderData = [];
+            availableSelectionDates = new Set();
+            currentSelectionCalendarDate = new Date();
+
+            if (stockChartInstance) {
+                stockChartInstance.destroy();
+                stockChartInstance = null;
+            }
+
+            if (!document.getElementById('stockModal').classList.contains('hidden')) {
+                closeModal();
+            }
+
+            clearAssetView('Loading asset data...');
+            clearPortfolioView('Loading portfolio...');
+            clearOrderHistoryView('Loading data...');
+            clearAnalyticsView('Loading analytics...');
+            clearSelectionView('Select a date to view strategy selection.');
+            setSelectionDateLabel(selectedSelectionDateByStrategy[currentStrategyId] || 'Select Date');
+        }
+
+        async function loadStrategies() {
+            try {
+                const data = await fetchJson('/api/strategies', 'Failed to load strategies.');
+                const strategies = Array.isArray(data.strategies) ? data.strategies : [];
+                const hasAllOption = strategies.some((strategy) => strategy.strategy_id === 'all');
+                availableStrategies = hasAllOption
+                    ? strategies
+                    : [{ strategy_id: 'all', display_name: 'All Strategies', requires_selection: false }, ...strategies];
+                renderStrategyOptions();
+            } catch (error) {
+                console.error('Strategy list load failed:', error);
+                availableStrategies = [{ strategy_id: 'all', display_name: 'All Strategies', requires_selection: false }];
+                renderStrategyOptions();
+            }
+        }
+
+        function renderStrategyOptions() {
+            const selector = document.getElementById('strategySelector');
             if (!selector) return;
 
             selector.innerHTML = '';
-            availableAccounts.forEach(account => {
+            availableStrategies.forEach((strategy) => {
                 const option = document.createElement('option');
-                option.value = account.account_id;
-                option.innerText = account.display_name;
+                option.value = strategy.strategy_id;
+                option.innerText = strategy.display_name;
                 selector.appendChild(option);
             });
 
-            const validAccountIds = new Set(availableAccounts.map(account => account.account_id));
-            if (!validAccountIds.has(currentAccountId)) {
-                currentAccountId = 'all';
+            const validStrategyIds = new Set(availableStrategies.map((strategy) => strategy.strategy_id));
+            if (!validStrategyIds.has(currentStrategyId)) {
+                currentStrategyId = 'all';
             }
-            selector.value = currentAccountId;
+
+            selector.value = currentStrategyId;
+            setSelectionDateLabel(selectedSelectionDateByStrategy[currentStrategyId] || 'Select Date');
         }
 
-        function handleAccountChange(accountId) {
-            currentAccountId = accountId;
+        function handleStrategyChange(strategyId) {
+            if (currentStrategyId === strategyId) {
+                return;
+            }
+
+            currentStrategyId = strategyId;
+            resetStrategyScopedState();
             switchTab(currentTab);
         }
 
@@ -627,7 +730,7 @@
                 const response = await fetch('/api/auth/status');
                 const data = await response.json();
                 isAuthenticated = data.authenticated;
-                await loadAccounts();
+                await loadStrategies();
                 updateAuthUI();
             } catch (error) {
                 console.error('Auth check failed:', error);
@@ -686,8 +789,8 @@
                 loadOrderHistory();
             } else if (currentTab === 'analytics') {
                 loadAnalytics();
-            } else if (currentTab === 'recommendations') {
-                loadRecommendationDates();
+            } else if (currentTab === 'selection') {
+                loadSelectionDates();
             }
         }
 
@@ -742,7 +845,7 @@
             window.switchTab = function (tabName) {
                 currentTab = tabName; // Update global currentTab
                 // Hide all contents
-                ['dashboard', 'portfolio', 'history', 'analytics', 'recommendations'].forEach(t => {
+                ['dashboard', 'portfolio', 'history', 'analytics', 'selection'].forEach(t => {
                     document.getElementById(`content-${t}`).classList.add('hidden');
                     const btn = document.getElementById(`tab-${t}`);
                     if (btn) {
@@ -770,8 +873,8 @@
                     loadOrderHistory();
                 } else if (tabName === 'analytics') {
                     loadAnalytics();
-                } else if (tabName === 'recommendations') {
-                    loadRecommendationDates();
+                } else if (tabName === 'selection') {
+                    loadSelectionDates();
                 }
             }
             // Initial tab load
@@ -781,19 +884,10 @@
         // Utility for formatting currency
         const formatKRW = (num) => new Intl.NumberFormat('ko-KR').format(Math.round(num));
 
-        // Global data storage
-        // These are now defined above with initial values
-        // let globalPerformanceData = null;
-        // let globalAnalyticsData = null;
-        // let globalAssetData = null;
         let stockChartInstance = null;
         let assetChartInstance = null;
-        let allocationChartInstance = null;
         let dailyProfitChartInstance = null;
-
-        // Asset Chart Mode State
-        // let currentAssetMode = 'return'; // 'asset' or 'return'
-        // let currentAssetRange = 'ALL';
+        let mddChartInstance = null;
 
         function toggleAssetMode(mode) {
             if (currentAssetMode === mode) return;
@@ -1021,29 +1115,41 @@
         }
 
         async function loadAssetChart() {
-            try {
-                const response = await fetch(buildApiUrl('/api/assets'));
-                const data = await response.json();
-                globalAssetData = data;
+            const requestedStrategyId = currentStrategyId;
+            const requestToken = nextRequestToken('asset');
 
-                if (data.length > 0) {
-                    // Initial load with ALL range
-                    updateAssetChartRange('ALL');
+            try {
+                const data = await fetchJson('/api/assets', 'Failed to load asset data.');
+                if (!isCurrentRequestToken('asset', requestToken, requestedStrategyId)) {
+                    return;
                 }
+
+                globalAssetData = Array.isArray(data) ? data : [];
+
+                if (globalAssetData.length === 0) {
+                    clearAssetView('No asset data available.');
+                    return;
+                }
+
+                updateAssetChartRange('ALL');
             } catch (e) {
+                if (!isCurrentRequestToken('asset', requestToken, requestedStrategyId)) {
+                    return;
+                }
                 console.error("Failed to load asset chart", e);
+                clearAssetView(e.message || 'Error loading asset data.');
             }
         }
 
         // Modal Functions
-        function openModal(symbol, name) {
+        function openModal(symbol, name, strategyId, strategyDisplayName) {
             const modal = document.getElementById('stockModal');
             const content = document.getElementById('modalContent');
             const title = document.getElementById('modalTitle');
             const subtitle = document.getElementById('modalSymbol');
 
             title.innerText = name;
-            subtitle.innerText = symbol;
+            subtitle.innerText = strategyDisplayName ? `${symbol} · ${strategyDisplayName}` : symbol;
 
             modal.classList.remove('hidden');
             // Trigger reflow
@@ -1051,7 +1157,7 @@
             modal.classList.remove('opacity-0');
             content.classList.remove('scale-95');
 
-            renderStockChart(symbol);
+            renderStockChart(symbol, strategyId);
         }
 
         function closeModal() {
@@ -1164,12 +1270,11 @@
             }
         }
 
-        function renderStockChart(symbol) {
+        function renderStockChart(symbol, strategyId) {
             const ctx = document.getElementById('stockChart').getContext('2d');
 
-            // Filter data for this stock
-            const stockData = globalPerformanceData
-                .filter(p => p.symbol === symbol)
+            const stockData = currentPerformanceData
+                .filter((performance) => performance.symbol === symbol && (performance.strategy_id || currentStrategyId) === strategyId)
                 .sort((a, b) => a.date.localeCompare(b.date));
 
             const labels = stockData.map(d => d.date);
@@ -1247,7 +1352,6 @@
             });
         }
 
-        // Sorting State
         let currentSort = { column: 'current_value', direction: 'desc' };
 
         function sortPortfolio(column) {
@@ -1255,376 +1359,364 @@
                 currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
             } else {
                 currentSort.column = column;
-                currentSort.direction = 'desc'; // Default to desc for new column
+                currentSort.direction = 'desc';
             }
+
             loadStockPerformance(true, true);
         }
 
-        function updateSortIcons() {
-            // Reset all icons
-            const cols = ['symbol', 'name', 'quantity', 'invested_amount', 'sell_amount', 'return', 'current_value'];
-            cols.forEach(c => {
-                const iconEl = document.getElementById(`sort-${c}`);
-                if (iconEl) iconEl.innerText = '';
-            });
+        function getSortArrow(column) {
+            if (currentSort.column !== column) {
+                return '';
+            }
 
-            // Set active icon
-            const arrow = currentSort.direction === 'asc' ? '↑' : '↓';
-            const iconEl = document.getElementById(`sort-${currentSort.column}`);
-            if (iconEl) iconEl.innerText = arrow;
+            return currentSort.direction === 'asc' ? '↑' : '↓';
         }
 
-        // Stock Performance
-        async function loadStockPerformance(isUpdate = false, tableOnly = false) {
-            try {
-                let data = globalPerformanceData;
-                if (!data) {
-                const response = await fetch(buildApiUrl('/api/performance'));
-                    data = await response.json();
-                    globalPerformanceData = data;
+        function enrichPerformanceRow(row) {
+            const investedAmount = Number(row.invested_amount || 0);
+            const currentValue = Number(row.current_value || 0);
+            const sellAmount = Number(row.sell_amount || 0);
+            const totalValue = currentValue + sellAmount;
+            const returnRate = row.return_rate !== undefined && row.return_rate !== null
+                ? Number(row.return_rate)
+                : (investedAmount > 0 ? ((totalValue / investedAmount) - 1) * 100 : 0);
+
+            return {
+                ...row,
+                invested_amount: investedAmount,
+                current_value: currentValue,
+                sell_amount: sellAmount,
+                quantity: Number(row.quantity || 0),
+                weight: Number(row.weight || 0),
+                return: Number.isFinite(returnRate) ? returnRate : 0,
+            };
+        }
+
+        function sortPerformanceRows(rows) {
+            return [...rows].sort((a, b) => {
+                let valueA = a[currentSort.column];
+                let valueB = b[currentSort.column];
+
+                if (typeof valueA === 'string') valueA = valueA.toLowerCase();
+                if (typeof valueB === 'string') valueB = valueB.toLowerCase();
+
+                if (valueA < valueB) return currentSort.direction === 'asc' ? -1 : 1;
+                if (valueA > valueB) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        function buildPortfolioSections(latestRows) {
+            const groups = latestRows.reduce((map, row) => {
+                const strategyId = row.strategy_id || currentStrategyId;
+                if (!map.has(strategyId)) {
+                    map.set(strategyId, []);
                 }
+                map.get(strategyId).push(row);
+                return map;
+            }, new Map());
 
-                const latestDate = data.reduce((max, p) => p.date > max ? p.date : max, "");
-                let latestData = data.filter(p => p.date === latestDate);
+            const requestedStrategies = currentStrategyId === 'all'
+                ? getStrategyOptions()
+                : [getCurrentStrategy()];
 
-                // 1. Always filter out stocks that have never been invested in (invested_amount == 0)
-                // BUT if guest, invested_amount is masked to 0, so we must NOT filter by it.
-                if (isAuthenticated) {
-                    latestData = latestData.filter(p => p.invested_amount > 0);
-                } else {
-                    // For guests, we can't filter by invested_amount. 
-                    // We should filter by something else, or just show all?
-                    // Usually daily_stock_performance contains all relevant stocks.
-                    // Let's filter by name or symbol existence just in case.
-                    latestData = latestData.filter(p => p.symbol && p.name);
+            return requestedStrategies.map((strategy) => ({
+                strategy_id: strategy.strategy_id,
+                strategy_display_name: strategy.display_name,
+                requires_selection: strategy.requires_selection,
+                rows: groups.get(strategy.strategy_id) || [],
+            }));
+        }
+
+        function renderAllocationChartForSection(section, isUpdate = false) {
+            const chartRows = section.rows
+                .filter((row) => (isAuthenticated ? row.current_value > 0 : row.weight > 0))
+                .sort((a, b) => (isAuthenticated ? b.current_value - a.current_value : b.weight - a.weight));
+
+            const sectionKey = sanitizeDomId(section.strategy_id);
+            const canvas = document.getElementById(`allocationChart-${sectionKey}`);
+            const legendContainer = document.getElementById(`allocationLegend-${sectionKey}`);
+
+            if (!canvas || !legendContainer || chartRows.length === 0) {
+                if (legendContainer) {
+                    legendContainer.innerHTML = '';
                 }
+                return;
+            }
 
-                // Calculate Summary Metrics
-                // Total Invested (Principal) = Initial Asset + Sum of all subsequent transfers
-                let netInvestment = 0;
-                let currentTotalAsset = 0;
+            let labels = chartRows.map((row) => row.name);
+            let values = chartRows.map((row) => (isAuthenticated ? row.current_value : row.weight));
 
-                if (globalAssetData && globalAssetData.length > 0) {
-                    // 1. Start with Day 0 Final Asset as Initial Principal
-                    netInvestment = globalAssetData[0].final_asset;
+            if (chartRows.length > 20) {
+                const topRows = chartRows.slice(0, 20);
+                const remainderRows = chartRows.slice(20);
+                const remainderValue = remainderRows.reduce(
+                    (sum, row) => sum + (isAuthenticated ? row.current_value : row.weight),
+                    0,
+                );
 
-                    // 2. Add all subsequent transfers
-                    for (let i = 1; i < globalAssetData.length; i++) {
-                        netInvestment += (globalAssetData[i].transfer_amount || 0);
-                    }
+                labels = topRows.map((row) => row.name);
+                values = topRows.map((row) => (isAuthenticated ? row.current_value : row.weight));
 
-                    // Get Current Total Asset (Last day final asset)
-                    // Note: This might be slightly delayed compared to real-time stock prices,
-                    // but for consistency with 'netInvestment' derived from history, it's safer.
-                    // HOWEVER, 'currentValue' (Stocks) is real-time.
-                    // Ideally: Total Asset = Real-time Stock Value + Cash.
-                    // We calculated Cash earlier (or will calculate it).
-                    // Let's rely on the Cash calculation logic which uses (Last Total Asset - Last Stock Value) approximation,
-                    // or better: Recalculate Cash here if needed, or use the one from Chart logic.
-                    // Actually, we need 'netInvestment' BEFORE chart logic to display summary.
-
-                    currentTotalAsset = globalAssetData[globalAssetData.length - 1].final_asset;
+                if (remainderValue > 0) {
+                    labels.push('Others');
+                    values.push(remainderValue);
                 }
+            }
 
-                // If we have real-time stock data, we should try to update Total Asset
-                // But 'cash' is hard to know real-time without an API call.
-                // Let's assume 'Cash' = Last Recorded Total Asset - Last Recorded Stock Value.
-                // And Current Total Asset = Current Stock Value + Cash.
+            const colors = [
+                '#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444',
+                '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16',
+                '#06b6d4', '#a855f7', '#d946ef', '#f43f5e', '#eab308',
+                '#22c55e', '#0ea5e9', '#64748b', '#78716c', '#a1a1aa',
+                '#4b5563',
+            ];
+            const backgroundColors = labels.map((label, index) => label === 'Others' ? '#4b5563' : colors[index % (colors.length - 1)]);
 
-                const currentStockValue = latestData.reduce((sum, p) => sum + p.current_value, 0);
-
-                // Estimate Cash from last history point (Total Asset - Stock Value at that time)
-                // This is tricky because we don't have historical stock breakdown easily here.
-                // Let's stick to the User's request: "Total Invested" is the key.
-                // "Total Profit" = Current Total Asset - Total Invested.
-
-                // Let's use (Historical Total Asset - Net Investment) for consistency with the "Total Invested" definition derived from history.
-                // The user sees "Current Value" (Stocks) updating real-time.
-                // If "Total Profit" is stale, it might be confusing.
-
-                // Let's assume Cash is constant from last close.
-                // Cash = Last Total Asset - Last Stock Value? No.
-                // We don't have 'Last Stock Value' separately stored in daily_assets.
-
-                // Let's look at app.py again. 'daily_assets' has 'final_asset'.
-                // It doesn't have breakdown.
-
-                // OK, for now, let's use the Last Recorded Total Asset for the Profit calculation.
-                // It's the most accurate "Total" we have.
-                // Total Profit = Last Final Asset - Net Investment.
-
-                const totalInvested = netInvestment;
-                // Note: We are replacing the old 'totalInvested' (sum of stock buy prices) with 'netInvestment' (Principal).
-
-                // For 'Current Value' display, we usually show Total Asset or Stock Value?
-                // The UI says "Current Balance" (Asset Mode) or "Total Return" (Return Mode).
-                // The element ID is 'portCurrentValue'.
-                // In the code below: document.getElementById('portCurrentValue').innerText = ... currentValue;
-                // 'currentValue' was sum of stocks.
-                // If we change 'Total Invested' to Principal, 'Current Value' should probably be 'Total Asset' (Principal + Profit).
-                // Let's update 'currentValue' variable to be 'currentTotalAsset' (Last Final Asset).
-
-                const totalProfit = currentTotalAsset - totalInvested;
-
-                // We need to update the 'currentValue' variable used for display to be Total Asset
-                // But wait, 'currentValue' is also used for 'Total Profit' calculation in the old code:
-                // const totalProfit = (currentValue + totalSellAmount) - totalInvested;
-                // We are replacing that.
-
-                // We need to update the 'currentValue' variable used for display to be Total Asset
-                // But wait, 'currentValue' is also used for 'Total Profit' calculation in the old code:
-                // const totalProfit = (currentValue + totalSellAmount) - totalInvested;
-                // We are replacing that.
-
-                // Let's redefine the variables to be clear.
-                const displayTotalInvested = totalInvested;
-                const displayCurrentValue = currentTotalAsset; // Show Total Asset
-                const displayTotalProfit = totalProfit;
-
-                if (!tableOnly) {
-                    if (isUpdate) {
-                        document.getElementById('portTotalInvested').innerText = isAuthenticated ? '₩' + formatKRW(displayTotalInvested) : '-';
-                        document.getElementById('portCurrentValue').innerText = isAuthenticated ? '₩' + formatKRW(displayCurrentValue) : '-';
-                    } else {
-                        if (isAuthenticated) {
-                            animateValue('portTotalInvested', 0, displayTotalInvested, 1000);
-                            animateValue('portCurrentValue', 0, displayCurrentValue, 1000);
-                        } else {
-                            document.getElementById('portTotalInvested').innerText = '-';
-                            document.getElementById('portCurrentValue').innerText = '-';
-                        }
-                    }
-
-                    const profitEl = document.getElementById('portTotalProfit');
-                    if (isAuthenticated) {
-                        profitEl.innerText = '₩' + formatKRW(displayTotalProfit);
-                        profitEl.className = `text-2xl font-bold ${displayTotalProfit >= 0 ? 'text-red-400' : 'text-blue-400'}`;
-                    } else {
-                        profitEl.innerText = '-';
-                        profitEl.className = `text-2xl font-bold text-gray-400`;
-                    }
-
-                    // Render Allocation Chart (Always use currently held stocks)
-                    const ctxAlloc = document.getElementById('allocationChart').getContext('2d');
-
-
-
-                    // Group small holdings into 'Others' if too many
-                    // Filter out zero quantity stocks for the chart
-                    // For guests, use 'weight' instead of 'current_value'
-                    const valueKey = isAuthenticated ? 'current_value' : 'weight';
-
-                    let chartData = latestData.filter(p => p[valueKey] > 0).sort((a, b) => b[valueKey] - a[valueKey]);
-                    let labels = chartData.map(p => p.name);
-                    let values = chartData.map(p => p[valueKey]);
-
-                    // Calculate Cash for Chart
-                    let cashValue = 0;
-
-                    if (isAuthenticated) {
-                        // Normal mode: Cash = Total Asset - Stock Value
-                        if (currentTotalAsset > 0) {
-                            cashValue = currentTotalAsset - currentStockValue;
-                        }
-                    } else {
-                        // Guest mode: values are percentages. Total is 100.
-                        // Cash % = 100 - Sum of stock weights
-                        const totalStockWeight = values.reduce((a, b) => a + b, 0);
-                        cashValue = 100 - totalStockWeight;
-                        // Avoid small floating point errors
-                        if (cashValue < 0.01) cashValue = 0;
-                    }
-
-                    if (cashValue > 0) {
-                        labels.push('Cash');
-                        values.push(cashValue);
-                    }
-
-                    if (chartData.length > 20) { // Adjusted logic: Top 20 stocks + Cash + Others (if needed)
-                        // If we have many stocks, we might want to group them.
-                        // But 'Cash' should ideally be separate.
-                        // Let's simplify: Take top 20 stocks, group rest as 'Others', then add 'Cash'.
-
-                        const top20 = chartData.slice(0, 20);
-                        const others = chartData.slice(20);
-                        const othersValue = others.reduce((sum, p) => sum + p[valueKey], 0);
-
-                        labels = top20.map(p => p.name);
-                        values = top20.map(p => p[valueKey]);
-
-                        if (othersValue > 0) {
-                            labels.push('Others');
-                            values.push(othersValue);
-                        }
-
-                        if (cashValue > 0) {
-                            labels.push('Cash');
-                            values.push(cashValue);
-                        }
-                    }
-
-                    if (allocationChartInstance) {
-                        allocationChartInstance.destroy();
-                    }
-
-                    // Extended Color Palette for 20+ items
-                    const palette = [
-                        '#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444',
-                        '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16',
-                        '#06b6d4', '#a855f7', '#d946ef', '#f43f5e', '#eab308',
-                        '#22c55e', '#0ea5e9', '#64748b', '#78716c', '#a1a1aa',
-                        '#4b5563', // Others
-                        '#9ca3af'  // Cash (Gray)
-                    ];
-
-                    // Ensure palette is long enough or cycle
-                    const bgColors = labels.map((label, i) => {
-                        if (label === 'Cash') return '#9ca3af'; // Gray for Cash
-                        if (label === 'Others') return '#4b5563'; // Dark Gray for Others
-                        return palette[i % (palette.length - 2)]; // Cycle through colors excluding last two special ones
-                    });
-
-                    allocationChartInstance = new Chart(ctxAlloc, {
-                        type: 'doughnut',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                data: values,
-                                backgroundColor: bgColors,
-                                borderWidth: 0
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: {
-                                    display: false // Disable default legend
+            allocationChartInstances[sectionKey] = new Chart(canvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: backgroundColors,
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label(context) {
+                                    const value = context.parsed;
+                                    const total = context.dataset.data.reduce((sum, item) => sum + item, 0);
+                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                    return isAuthenticated
+                                        ? `${context.label}: ₩${formatKRW(value)} (${percentage}%)`
+                                        : `${context.label}: ${percentage}%`;
                                 },
-                                tooltip: {
-                                    callbacks: {
-                                        label: function (context) {
-                                            const label = context.label || '';
-                                            const value = context.parsed;
-                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                            const percentage = ((value / total) * 100).toFixed(1) + '%';
-                                            return isAuthenticated ? `${label}: ₩${formatKRW(value)} (${percentage})` : `${label}: ${percentage}`;
-                                        }
-                                    }
-                                }
                             },
-                            cutout: '60%',
-                            animation: {
-                                duration: isUpdate ? 0 : 1000
-                            }
-                        }
-                    });
+                        },
+                    },
+                    cutout: '60%',
+                    animation: {
+                        duration: isUpdate ? 0 : 1000,
+                    },
+                },
+            });
 
-                    // Generate Custom Legend
-                    const legendContainer = document.getElementById('allocationLegend');
-                    let legendHtml = '';
-                    labels.forEach((label, index) => {
-                        if (label === 'Cash') return; // Hide Cash from Legend
+            legendContainer.innerHTML = labels.map((label, index) => `
+                <div class="flex items-center space-x-1 sm:space-x-2 p-1 sm:p-1.5 rounded hover:bg-gray-800/50 transition-colors">
+                    <span class="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full flex-shrink-0" style="background-color: ${backgroundColors[index]}"></span>
+                    <span class="text-gray-300 truncate text-[9px] sm:text-[11px]" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+                </div>
+            `).join('');
+        }
 
-                        const color = bgColors[index];
-                        legendHtml += `
-                                <div class="flex items-center space-x-1 sm:space-x-2 p-1 sm:p-1.5 rounded hover:bg-gray-800/50 transition-colors">
-                                    <span class="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
-                                    <span class="text-gray-300 truncate text-[9px] sm:text-[11px]" title="${label}">${label}</span>
-                                </div>
-                            `;
-                    });
-                    legendContainer.innerHTML = legendHtml;
-                }
+        function renderPortfolioSections(sections, isUpdate = false) {
+            const container = document.getElementById('portfolioSections');
+            if (!container) {
+                return;
+            }
 
-                // 2. Filter out sold stocks (quantity == 0) for TABLE DISPLAY if toggle is checked
-                // BUT if guest, quantity is masked to 0, so we must NOT filter by it.
-                let displayData = [...latestData];
+            destroyAllocationCharts();
+
+            container.innerHTML = sections.map((section) => {
+                const sectionKey = sanitizeDomId(section.strategy_id);
+                const rows = section.rows.map(enrichPerformanceRow);
                 const hideSold = document.getElementById('hideSoldToggle').checked;
-                if (hideSold && isAuthenticated) {
-                    displayData = displayData.filter(p => p.quantity > 0);
-                }
+                const displayRows = sortPerformanceRows(rows.filter((row) => !(hideSold && isAuthenticated && row.quantity <= 0)));
+                const totalInvested = rows.reduce((sum, row) => sum + row.invested_amount, 0);
+                const currentValuation = rows.reduce((sum, row) => sum + row.current_value, 0);
+                const totalProfit = rows.reduce((sum, row) => sum + row.current_value + row.sell_amount - row.invested_amount, 0);
+                const hasAllocation = rows.some((row) => (isAuthenticated ? row.current_value > 0 : row.weight > 0));
+                const subtitle = currentStrategyId === 'all'
+                    ? 'Separate strategy summary, allocation, and holdings'
+                    : 'Current strategy summary, allocation, and holdings';
 
-                // Calculate derived values for sorting
-                displayData = displayData.map(p => {
-                    const totalInvested = p.invested_amount;
-                    const totalValue = p.current_value + p.sell_amount;
-                    let returnRate = 0;
-
-                    if (p.return_rate !== undefined) {
-                        returnRate = p.return_rate;
-                    } else {
-                        returnRate = totalInvested > 0 ? ((totalValue / totalInvested) - 1) * 100 : 0;
-                    }
-
-                    return { ...p, return: returnRate };
-                });
-
-                // Sort
-                displayData.sort((a, b) => {
-                    let valA = a[currentSort.column];
-                    let valB = b[currentSort.column];
-
-                    if (typeof valA === 'string') valA = valA.toLowerCase();
-                    if (typeof valB === 'string') valB = valB.toLowerCase();
-
-                    if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
-                    if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
-                    return 0;
-                });
-
-                updateSortIcons();
-
-                let html = '';
-                displayData.forEach(p => {
-                    const quantity = p.quantity !== undefined ? p.quantity : '-';
-                    const isPositive = p.return >= 0;
-                    const colorClass = isPositive ? 'text-red-400' : 'text-blue-400';
-                    const bgClass = isPositive ? 'bg-red-500/10' : 'bg-blue-500/10';
-                    const sign = isPositive ? '+' : '';
-
-                    html += `
-                        <tr class="hover:bg-gray-800/50 transition-colors cursor-pointer group whitespace-nowrap" onclick="openModal('${p.symbol}', '${p.name}')">
-                            <td class="px-4 py-3 text-xs sm:text-sm font-medium text-gray-300 group-hover:text-white transition-colors">${p.symbol}</td>
-                            <td class="px-4 py-3 text-xs sm:text-sm text-gray-400 group-hover:text-gray-200 transition-colors">${p.name}${isAuthenticated && p.account_display_name ? `<br><span class="text-xs text-gray-500">${p.account_display_name}</span>` : ''}</td>
-                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? quantity : '-'}</td>
-                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? '₩' + formatKRW(p.invested_amount) : '-'}</td>
-                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? '₩' + formatKRW(p.sell_amount) : '-'}</td>
-                            <td class="px-4 py-3 text-right">
-                                <span class="px-2 py-1 rounded text-[10px] sm:text-xs font-semibold ${colorClass} ${bgClass}">
-                                    ${sign + p.return.toFixed(2) + '%'}
-                                </span>
-                            </td>
-                            <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? '₩' + formatKRW(p.current_value) : '-'}</td>
-                        </tr>
+                if (rows.length === 0) {
+                    return `
+                        <section class="glass-panel rounded-2xl p-6 shadow-xl">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-white">${escapeHtml(section.strategy_display_name)}</h3>
+                                    <p class="text-sm text-gray-500">${subtitle}</p>
+                                </div>
+                                <span class="px-3 py-1 rounded-full bg-gray-800 text-gray-400 text-xs font-medium border border-gray-700">No Holdings</span>
+                            </div>
+                            <div class="rounded-xl border border-dashed border-gray-700 bg-gray-900/40 px-6 py-12 text-center text-gray-500">
+                                No portfolio data is available for this strategy.
+                            </div>
+                        </section>
                     `;
-                });
-
-                if (latestData.length === 0) {
-                    html = '<tr><td colspan="7" class="py-4 text-center text-gray-500">No performance data available</td></tr>';
                 }
 
-                document.getElementById('stockPerformance').innerHTML = html;
-            } catch (e) {
-                console.error("Failed to load stock performance", e);
-                document.getElementById('stockPerformance').innerHTML = '<tr><td colspan="7" class="py-4 text-center text-red-500">Error loading data</td></tr>';
+                const tableRows = displayRows.length > 0
+                    ? displayRows.map((row) => {
+                        const metaLabel = isAuthenticated && row.account_display_name
+                            ? `<br><span class="text-xs text-gray-500">${escapeHtml(row.account_display_name)}</span>`
+                            : '';
+                        const isPositive = row.return >= 0;
+                        const sign = isPositive ? '+' : '';
+                        const valueClass = isPositive ? 'text-red-400 bg-red-500/10' : 'text-blue-400 bg-blue-500/10';
+
+                        return `
+                            <tr class="hover:bg-gray-800/50 transition-colors cursor-pointer group whitespace-nowrap" data-modal-symbol="${escapeHtml(row.symbol)}" data-modal-name="${escapeHtml(row.name)}" data-modal-strategy-id="${escapeHtml(section.strategy_id)}" data-modal-strategy-display-name="${escapeHtml(section.strategy_display_name)}">
+                                <td class="px-4 py-3 text-xs sm:text-sm font-medium text-gray-300 group-hover:text-white transition-colors">${escapeHtml(row.symbol)}</td>
+                                <td class="px-4 py-3 text-xs sm:text-sm text-gray-400 group-hover:text-gray-200 transition-colors">${escapeHtml(row.name)}${metaLabel}</td>
+                                <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? escapeHtml(row.quantity) : '-'}</td>
+                                <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? `₩${formatKRW(row.invested_amount)}` : '-'}</td>
+                                <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-400 font-mono">${isAuthenticated ? `₩${formatKRW(row.sell_amount)}` : '-'}</td>
+                                <td class="px-4 py-3 text-right"><span class="px-2 py-1 rounded text-[10px] sm:text-xs font-semibold ${valueClass}">${sign}${row.return.toFixed(2)}%</span></td>
+                                <td class="px-4 py-3 text-xs sm:text-sm text-right text-gray-300 font-mono">${isAuthenticated ? `₩${formatKRW(row.current_value)}` : '-'}</td>
+                            </tr>
+                        `;
+                    }).join('')
+                    : '<tr><td colspan="7" class="py-6 text-center text-gray-500">No holdings match the current filter.</td></tr>';
+
+                return `
+                    <section class="glass-panel rounded-2xl p-6 shadow-xl space-y-6">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div>
+                                <h3 class="text-lg font-semibold text-white">${escapeHtml(section.strategy_display_name)}</h3>
+                                <p class="text-sm text-gray-500">${subtitle}</p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs font-medium border border-blue-500/20">${escapeHtml(section.strategy_id)}</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="rounded-xl border border-gray-800 bg-gray-900/60 p-4 flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-400">Total Invested</p>
+                                    <p class="text-2xl font-bold text-white">${isAuthenticated ? `₩${formatKRW(totalInvested)}` : '-'}</p>
+                                </div>
+                                <div class="p-3 bg-blue-500/10 rounded-lg text-blue-400">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="rounded-xl border border-gray-800 bg-gray-900/60 p-4 flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-400">Current Valuation</p>
+                                    <p class="text-2xl font-bold text-white">${isAuthenticated ? `₩${formatKRW(currentValuation)}` : '-'}</p>
+                                </div>
+                                <div class="p-3 bg-purple-500/10 rounded-lg text-purple-400">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="rounded-xl border border-gray-800 bg-gray-900/60 p-4 flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-400">Total Profit/Loss</p>
+                                    <p class="text-2xl font-bold ${isAuthenticated ? (totalProfit >= 0 ? 'text-red-400' : 'text-blue-400') : 'text-gray-400'}">${isAuthenticated ? `₩${formatKRW(totalProfit)}` : '-'}</p>
+                                </div>
+                                <div class="p-3 bg-green-500/10 rounded-lg text-green-400">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-6 lg:col-span-1 min-h-[420px] flex flex-col">
+                                <h4 class="text-lg font-semibold text-gray-200 mb-4">Asset Allocation</h4>
+                                ${hasAllocation
+                                    ? `<div class="relative h-72 w-full flex justify-center"><canvas id="allocationChart-${sectionKey}"></canvas></div><div id="allocationLegend-${sectionKey}" class="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-1 sm:gap-2"></div>`
+                                    : '<div class="flex-1 flex items-center justify-center text-sm text-gray-500">No allocation data available.</div>'}
+                            </div>
+                            <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-6 lg:col-span-2 min-h-[420px] flex flex-col">
+                                <h4 class="text-lg font-semibold text-gray-200 mb-4">Holdings</h4>
+                                <div class="overflow-auto flex-1 custom-scrollbar">
+                                    <table class="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr class="text-gray-400 text-[10px] sm:text-xs uppercase tracking-wider border-b border-gray-800 whitespace-nowrap sticky top-0 z-10 bg-[#111827]">
+                                                <th class="px-4 py-4 font-medium cursor-pointer hover:text-white transition-colors select-none w-[10%]" onclick="sortPortfolio('symbol')">Symbol ${getSortArrow('symbol')}</th>
+                                                <th class="px-4 py-4 font-medium cursor-pointer hover:text-white transition-colors select-none w-[25%]" onclick="sortPortfolio('name')">Name ${getSortArrow('name')}</th>
+                                                <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[10%]" onclick="sortPortfolio('quantity')">Qty ${getSortArrow('quantity')}</th>
+                                                <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]" onclick="sortPortfolio('invested_amount')">Invested ${getSortArrow('invested_amount')}</th>
+                                                <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]" onclick="sortPortfolio('sell_amount')">Sold ${getSortArrow('sell_amount')}</th>
+                                                <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[10%]" onclick="sortPortfolio('return')">Return ${getSortArrow('return')}</th>
+                                                <th class="px-4 py-4 font-medium text-right cursor-pointer hover:text-white transition-colors select-none w-[15%]" onclick="sortPortfolio('current_value')">Value (KRW) ${getSortArrow('current_value')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="text-sm divide-y divide-gray-800/50">${tableRows}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                `;
+            }).join('');
+
+            container.querySelectorAll('[data-modal-symbol]').forEach((rowElement) => {
+                rowElement.addEventListener('click', () => {
+                    openModal(
+                        rowElement.dataset.modalSymbol || '',
+                        rowElement.dataset.modalName || '',
+                        rowElement.dataset.modalStrategyId || currentStrategyId,
+                        rowElement.dataset.modalStrategyDisplayName || getStrategyDisplayName(rowElement.dataset.modalStrategyId || currentStrategyId),
+                    );
+                });
+            });
+
+            sections.forEach((section) => renderAllocationChartForSection({
+                ...section,
+                rows: section.rows.map(enrichPerformanceRow),
+            }, isUpdate));
+        }
+
+        async function loadStockPerformance(isUpdate = false, tableOnly = false) {
+            const requestedStrategyId = currentStrategyId;
+            const requestToken = nextRequestToken('portfolio');
+
+            try {
+                const data = await fetchJson('/api/performance', 'Failed to load portfolio data.');
+                if (!isCurrentRequestToken('portfolio', requestToken, requestedStrategyId)) {
+                    return;
+                }
+
+                currentPerformanceData = Array.isArray(data) ? data : [];
+                const latestDate = currentPerformanceData.reduce((latest, row) => row.date > latest ? row.date : latest, '');
+                let latestRows = currentPerformanceData.filter((row) => row.date === latestDate);
+
+                if (isAuthenticated) {
+                    latestRows = latestRows.filter((row) => Number(row.invested_amount || 0) > 0);
+                } else {
+                    latestRows = latestRows.filter((row) => row.symbol && row.name);
+                }
+
+                const sections = buildPortfolioSections(latestRows);
+                renderPortfolioSections(sections, isUpdate || tableOnly);
+            } catch (error) {
+                if (!isCurrentRequestToken('portfolio', requestToken, requestedStrategyId)) {
+                    return;
+                }
+                console.error('Failed to load stock performance', error);
+                clearPortfolioView(error.message || 'Error loading portfolio data.');
             }
         }
 
-        // Recent Orders Pagination State
         let globalOrderData = [];
         let currentOrderPage = 1;
         const itemsPerPage = 10;
 
         async function loadOrderHistory() {
+            const requestedStrategyId = currentStrategyId;
+            const requestToken = nextRequestToken('orders');
+
             try {
-                const response = await fetch(buildApiUrl('/api/orders'));
-                const data = await response.json();
-                globalOrderData = data;
+                const data = await fetchJson('/api/orders', 'Failed to load order history.');
+                if (!isCurrentRequestToken('orders', requestToken, requestedStrategyId)) {
+                    return;
+                }
+
+                globalOrderData = Array.isArray(data) ? data : [];
                 renderOrderHistory(1);
             } catch (e) {
+                if (!isCurrentRequestToken('orders', requestToken, requestedStrategyId)) {
+                    return;
+                }
                 console.error("Failed to load orders", e);
-                document.getElementById('recentOrders').innerHTML = '<tr><td colspan="5" class="py-4 text-center text-red-500">Error loading data</td></tr>';
+                clearOrderHistoryView(e.message || 'Error loading data');
             }
         }
 
@@ -1642,9 +1734,9 @@
 
                 html += `
                     <tr class="hover:bg-gray-800/50 transition-colors">
-                        <td class="py-3 text-gray-500 text-xs">${o.date} <br> ${o.time}</td>
-                        <td class="py-3 font-medium ${typeColor}">${typeLabel}</td>
-                        <td class="py-3 text-gray-300">${o.name}${isAuthenticated && o.account_display_name ? `<br><span class="text-xs text-gray-500">${o.account_display_name}</span>` : ''}</td>
+                        <td class="py-3 text-gray-500 text-xs">${escapeHtml(o.date)} <br> ${escapeHtml(o.time)}</td>
+                        <td class="py-3 font-medium ${typeColor}">${escapeHtml(typeLabel)}</td>
+                        <td class="py-3 text-gray-300">${escapeHtml(o.name)}${isAuthenticated && (o.strategy_display_name || o.account_display_name) ? `<br><span class="text-xs text-gray-500">${escapeHtml(o.strategy_display_name || o.account_display_name)}</span>` : ''}</td>
                         <td class="py-3 text-right text-gray-400">${isAuthenticated ? o.executed_qty : '-'}</td>
                         <td class="py-3 text-right text-gray-300 font-mono">${isAuthenticated ? '₩' + formatKRW(o.price) : '-'}</td>
                     </tr>
@@ -1715,48 +1807,33 @@
 
         // Analytics
         async function loadAnalytics() {
+            const requestedStrategyId = currentStrategyId;
+            const requestToken = nextRequestToken('analytics');
+
             try {
-                const response = await fetch(buildApiUrl('/api/analytics'));
-                const data = await response.json();
-
-                if (!data || Object.keys(data).length === 0) return;
-
-                globalAnalyticsData = data; // Store globally
-
-                // 1. Metrics
-                document.getElementById('metricWinRate').innerText = `${data.win_rate.toFixed(1)}%`;
-                document.getElementById('metricBestDay').innerText = `+${data.best_day.toFixed(2)}%`;
-                document.getElementById('metricBestDay').className = 'text-2xl font-bold text-red-400 mt-1'; // Rise = Red
-                document.getElementById('metricWorstDay').innerText = `${data.worst_day.toFixed(2)}%`;
-                document.getElementById('metricWorstDay').className = 'text-2xl font-bold text-blue-400 mt-1'; // Fall = Blue
-                document.getElementById('metricVolatility').innerText = `${data.volatility.toFixed(2)}%`;
-
-                // Assuming latestAsset is available from global scope or another fetch
-                // This block is added based on the user's instruction to update asset summary colors
-                // and assumes `latestAsset` is defined elsewhere or will be defined.
-                // If `latestAsset` is not defined, this part will cause a runtime error.
-                // To make it syntactically correct and match the instruction, we place it here.
-                if (typeof latestAsset !== 'undefined' && latestAsset) {
-                    const totalProfit = latestAsset.final_asset - latestAsset.initial_asset;
-                    const profitRate = (totalProfit / latestAsset.initial_asset) * 100;
-
-                    document.getElementById('totalAsset').innerText = isAuthenticated ? `₩${formatKRW(latestAsset.final_asset)}` : '-';
-                    document.getElementById('totalProfit').innerText = isAuthenticated ? `₩${formatKRW(totalProfit)}` : '-';
-                    document.getElementById('profitRate').innerText = isAuthenticated ? `${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%` : '-';
-                    // Color coding (Korean: Red=Up, Blue=Down)
-                    const colorClass = profitRate >= 0 ? 'text-red-400' : 'text-blue-400';
-                    document.getElementById('totalProfit').className = `text-2xl font-bold ${colorClass}`;
-                    document.getElementById('profitRate').className = `text-sm font-medium ${colorClass} mt-1`;
+                const data = await fetchJson('/api/analytics', 'Failed to load analytics data.');
+                if (!isCurrentRequestToken('analytics', requestToken, requestedStrategyId)) {
+                    return;
                 }
 
+                if (!data || Object.keys(data).length === 0) {
+                    clearAnalyticsView('No analytics data available.');
+                    return;
+                }
 
-                // Daily Profit Chart
-                // Daily Profit/Return Chart
+                globalAnalyticsData = data;
+
+                document.getElementById('metricWinRate').innerText = `${data.win_rate.toFixed(1)}%`;
+                document.getElementById('metricBestDay').innerText = `+${data.best_day.toFixed(2)}%`;
+                document.getElementById('metricBestDay').className = 'text-2xl font-bold text-red-400 mt-1';
+                document.getElementById('metricWorstDay').innerText = `${data.worst_day.toFixed(2)}%`;
+                document.getElementById('metricWorstDay').className = 'text-2xl font-bold text-blue-400 mt-1';
+                document.getElementById('metricVolatility').innerText = `${data.volatility.toFixed(2)}%`;
+
                 const ctxProfit = document.getElementById('dailyProfitChart').getContext('2d');
-                // For guests, use 'daily_return' (percentage) instead of 'daily_profit' (amount)
                 const valueKey = isAuthenticated ? 'daily_profit' : 'daily_return';
                 const profitData = data.daily_returns.map(d => d[valueKey]);
-                const profitColors = profitData.map(v => v >= 0 ? '#ef4444' : '#3b82f6'); // Red for profit, Blue for loss
+                const profitColors = profitData.map(v => v >= 0 ? '#ef4444' : '#3b82f6');
                 const chartLabel = isAuthenticated ? 'Daily Profit (KRW)' : 'Daily Return (%)';
 
                 if (dailyProfitChartInstance) {
@@ -1821,11 +1898,11 @@
                         }
                     }
                 });
-
-
-                // MDD Chart
                 const ctxMdd = document.getElementById('mddChart').getContext('2d');
-                new Chart(ctxMdd, {
+                if (mddChartInstance) {
+                    mddChartInstance.destroy();
+                }
+                mddChartInstance = new Chart(ctxMdd, {
                     type: 'line',
                     data: {
                         labels: data.mdd_history.map(d => d.date),
@@ -1870,7 +1947,6 @@
                     }
                 });
 
-                // 3. Monthly Heatmap
                 const heatmapContainer = document.getElementById('monthlyHeatmap');
                 let heatmapHtml = '';
 
@@ -1895,57 +1971,146 @@
                 heatmapContainer.innerHTML = heatmapHtml;
 
             } catch (e) {
-                console.error("Failed to load analytics", e);
-            }
-        }
-
-        loadAssetChart();
-        loadStockPerformance();
-        loadOrderHistory();
-        loadAnalytics();
-        // Recommendations
-        // Recommendation Date Picker Logic
-        let availableRecDates = new Set();
-        let currentRecCalendarDate = new Date();
-
-        async function loadRecommendationDates() {
-            try {
-                const response = await fetch(buildApiUrl('/api/recommendations/dates'));
-                const dates = await response.json();
-
-                availableRecDates = new Set(dates); // Store as Set for O(1) lookup: "YYYYMMDD"
-
-                // Auto-select latest date if available and not yet selected
-                if (dates.length > 0) {
-                    const latestDate = dates[0];
-                    const formatted = `${latestDate.substring(0, 4)}-${latestDate.substring(4, 6)}-${latestDate.substring(6, 8)}`;
-
-                    // Only load if we haven't loaded anything yet or if it's the initial load
-                    const btnText = document.getElementById('recommendationDateText');
-                    if (btnText.innerText === 'Select Date') {
-                        selectRecommendationDate(latestDate);
-                    }
+                if (!isCurrentRequestToken('analytics', requestToken, requestedStrategyId)) {
+                    return;
                 }
-            } catch (e) {
-                console.error("Failed to load recommendation dates", e);
+                console.error("Failed to load analytics", e);
+                clearAnalyticsView(e.message || 'Error loading analytics data.');
             }
         }
 
-        function openRecommendationDateModal() {
-            const modal = document.getElementById('recommendationDateModal');
-            const content = document.getElementById('recDateModalContent');
+        function buildSelectionStrategySections(selectionData = null) {
+            const responseStrategies = Array.isArray(selectionData?.strategies) ? selectionData.strategies : [];
+            const responseMap = new Map(responseStrategies.map((strategy) => [strategy.strategy_id, strategy]));
+            const requestedStrategies = currentStrategyId === 'all'
+                ? getStrategyOptions()
+                : [getCurrentStrategy()];
 
-            renderRecCalendar();
+            return requestedStrategies.map((strategy) => {
+                const responseStrategy = responseMap.get(strategy.strategy_id);
+                const rows = Array.isArray(responseStrategy?.rows) ? responseStrategy.rows : [];
+                return {
+                    strategy_id: strategy.strategy_id,
+                    strategy_display_name: responseStrategy?.strategy_display_name || strategy.display_name,
+                    requires_selection: responseStrategy?.requires_selection ?? strategy.requires_selection,
+                    available: responseStrategy?.available ?? rows.length > 0,
+                    rows,
+                };
+            });
+        }
 
+        function renderSelectionSections(strategies, dateStr = null) {
+            const container = document.getElementById('selectionSections');
+            if (!container) {
+                return;
+            }
+
+            if (!strategies.length) {
+                clearSelectionView('No selection data is available for this strategy.');
+                return;
+            }
+
+            container.innerHTML = strategies.map((strategy) => {
+                const badgeClass = strategy.available
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                    : strategy.requires_selection
+                        ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                        : 'bg-gray-800 text-gray-400 border-gray-700';
+                const badgeText = strategy.available
+                    ? 'Available'
+                    : strategy.requires_selection
+                        ? 'No Snapshot'
+                        : 'Not Required';
+                const emptyMessage = !strategy.requires_selection
+                    ? 'This strategy does not use a daily selection list.'
+                    : strategy.available
+                        ? 'No selection rows were saved for this date.'
+                        : `No selection snapshot is available for ${escapeHtml(formatSelectionDate(dateStr || 'this date'))}.`;
+                const rowsHtml = strategy.rows.map((row, index) => {
+                    const code = row.단축코드 ?? row.symbol ?? row.code ?? '-';
+                    const name = row.한글명 ?? row.name ?? '-';
+                    const rankValue = row.rank_value ?? row.value_rank ?? '-';
+                    const rankMomentum = row.rank_momentum ?? row.momentum_rank ?? '-';
+                    const rankQuality = row.rank_quality ?? row.quality_rank ?? '-';
+                    const rankTotal = row.rank_total ?? row.total_rank ?? '-';
+
+                    return `
+                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                            <td class="px-4 py-3 font-medium text-white">${index + 1}</td>
+                            <td class="px-4 py-3 font-mono text-gray-300">${escapeHtml(code)}</td>
+                            <td class="px-4 py-3 text-white font-medium">${escapeHtml(name)}</td>
+                            <td class="px-4 py-3 text-right hidden sm:table-cell">${escapeHtml(rankValue)}</td>
+                            <td class="px-4 py-3 text-right hidden sm:table-cell">${escapeHtml(rankMomentum)}</td>
+                            <td class="px-4 py-3 text-right hidden sm:table-cell">${escapeHtml(rankQuality)}</td>
+                            <td class="px-4 py-3 text-right font-bold text-blue-400 hidden sm:table-cell">${escapeHtml(rankTotal)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                return `
+                    <section class="rounded-2xl border border-gray-800 bg-gray-900/40 p-6">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-white">${escapeHtml(strategy.strategy_display_name)}</h3>
+                                <p class="text-sm text-gray-500">${strategy.requires_selection ? 'Daily selection snapshot' : 'Selection not required for this strategy'}</p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-xs font-medium border ${badgeClass}">${badgeText}</span>
+                        </div>
+                        ${strategy.rows.length > 0
+                            ? `<div class="overflow-x-auto"><table class="w-full text-sm text-left text-gray-400"><thead class="text-xs text-gray-500 uppercase bg-gray-800/50"><tr><th scope="col" class="px-4 py-3 rounded-tl-lg">#</th><th scope="col" class="px-4 py-3">Code</th><th scope="col" class="px-4 py-3">Name</th><th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Value Rank</th><th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Momentum Rank</th><th scope="col" class="px-4 py-3 text-right hidden sm:table-cell">Quality Rank</th><th scope="col" class="px-4 py-3 text-right rounded-tr-lg hidden sm:table-cell">Total Rank</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`
+                            : `<div class="rounded-xl border border-dashed border-gray-700 bg-gray-900/40 px-6 py-10 text-center text-gray-500">${emptyMessage}</div>`}
+                    </section>
+                `;
+            }).join('');
+        }
+
+        async function loadSelectionDates() {
+            const requestedStrategyId = currentStrategyId;
+            const requestToken = nextRequestToken('selectionDates');
+
+            try {
+                const payload = await fetchJson('/api/selection/dates', 'Failed to load selection dates.');
+                if (!isCurrentRequestToken('selectionDates', requestToken, requestedStrategyId)) {
+                    return;
+                }
+
+                const dates = Array.isArray(payload) ? payload : (Array.isArray(payload.dates) ? payload.dates : []);
+
+                availableSelectionDates = new Set(dates);
+
+                if (dates.length === 0) {
+                    delete selectedSelectionDateByStrategy[currentStrategyId];
+                    setSelectionDateLabel('No Dates');
+                    renderSelectionSections(buildSelectionStrategySections(), null);
+                    return;
+                }
+
+                const selectedDate = selectedSelectionDateByStrategy[currentStrategyId];
+                const nextDate = selectedDate && dates.includes(selectedDate) ? selectedDate : dates[0];
+                await selectSelectionDate(nextDate, false);
+            } catch (error) {
+                if (!isCurrentRequestToken('selectionDates', requestToken, requestedStrategyId)) {
+                    return;
+                }
+                console.error('Failed to load selection dates', error);
+                clearSelectionView(error.message || 'Error loading selection dates.');
+            }
+        }
+
+        function openSelectionDateModal() {
+            const modal = document.getElementById('selectionDateModal');
+            const content = document.getElementById('selectionDateModalContent');
+
+            renderSelectionCalendar();
             modal.classList.remove('hidden');
             void modal.offsetWidth;
             modal.classList.remove('opacity-0');
             content.classList.remove('scale-95');
         }
 
-        function closeRecDateModal() {
-            const modal = document.getElementById('recommendationDateModal');
-            const content = document.getElementById('recDateModalContent');
+        function closeSelectionDateModal() {
+            const modal = document.getElementById('selectionDateModal');
+            const content = document.getElementById('selectionDateModalContent');
 
             modal.classList.add('opacity-0');
             content.classList.add('scale-95');
@@ -1955,105 +2120,85 @@
             }, 300);
         }
 
-        // Close on backdrop click
-        document.getElementById('recommendationDateModal').addEventListener('click', (e) => {
-            if (e.target === document.getElementById('recommendationDateModal')) closeRecDateModal();
+        document.getElementById('selectionDateModal').addEventListener('click', (event) => {
+            if (event.target === document.getElementById('selectionDateModal')) {
+                closeSelectionDateModal();
+            }
         });
 
-        function changeRecCalendarMonth(delta) {
-            currentRecCalendarDate.setMonth(currentRecCalendarDate.getMonth() + delta);
-            renderRecCalendar();
+        function changeSelectionCalendarMonth(delta) {
+            currentSelectionCalendarDate.setMonth(currentSelectionCalendarDate.getMonth() + delta);
+            renderSelectionCalendar();
         }
 
-        function renderRecCalendar() {
-            const year = currentRecCalendarDate.getFullYear();
-            const month = currentRecCalendarDate.getMonth();
+        function renderSelectionCalendar() {
+            const year = currentSelectionCalendarDate.getFullYear();
+            const month = currentSelectionCalendarDate.getMonth();
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            document.getElementById('selectionCalendarTitle').innerText = `${monthNames[month]} ${year}`;
 
-            // Update Title
-            const monthNames = ["January", "February", "March", "April", "May", "June",
-                "July", "August", "September", "October", "November", "December"
-            ];
-            document.getElementById('recCalendarTitle').innerText = `${monthNames[month]} ${year}`;
-
-            const grid = document.getElementById('recCalendarGrid');
-            // Remove old days (keep headers which are first 7 children)
+            const grid = document.getElementById('selectionCalendarGrid');
             while (grid.children.length > 7) {
                 grid.removeChild(grid.lastChild);
             }
 
             const firstDay = new Date(year, month, 1);
             const lastDay = new Date(year, month + 1, 0);
-            const daysInMonth = lastDay.getDate();
             const startDayOfWeek = firstDay.getDay();
 
-            // Empty cells
-            for (let i = 0; i < startDayOfWeek; i++) {
-                const div = document.createElement('div');
-                grid.appendChild(div);
+            for (let index = 0; index < startDayOfWeek; index += 1) {
+                grid.appendChild(document.createElement('div'));
             }
 
-            // Days
-            for (let d = 1; d <= daysInMonth; d++) {
-                const dateStr = `${year}${String(month + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
-                const isAvailable = availableRecDates.has(dateStr);
-
-                const btn = document.createElement('button');
-                btn.className = `w-8 h-8 rounded-full text-sm flex items-center justify-center mx-auto transition-colors ${isAvailable
-                    ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white font-bold cursor-pointer'
-                    : 'text-gray-600 cursor-default'
-                    }`;
-                btn.innerText = d;
+            for (let day = 1; day <= lastDay.getDate(); day += 1) {
+                const dateStr = `${year}${String(month + 1).padStart(2, '0')}${String(day).padStart(2, '0')}`;
+                const isAvailable = availableSelectionDates.has(dateStr);
+                const button = document.createElement('button');
+                button.className = `w-8 h-8 rounded-full text-sm flex items-center justify-center mx-auto transition-colors ${isAvailable ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white font-bold cursor-pointer' : 'text-gray-600 cursor-default'}`;
+                button.innerText = day;
 
                 if (isAvailable) {
-                    btn.onclick = () => selectRecommendationDate(dateStr);
+                    button.onclick = () => selectSelectionDate(dateStr);
                 }
 
-                grid.appendChild(btn);
+                grid.appendChild(button);
             }
         }
 
-        function selectRecommendationDate(dateStr) {
-            // dateStr: YYYYMMDD
-            const formatted = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-            document.getElementById('recommendationDateText').innerText = formatted;
+        async function selectSelectionDate(dateStr, shouldClose = true) {
+            selectedSelectionDateByStrategy[currentStrategyId] = dateStr;
+            if (/^\d{8}$/.test(dateStr)) {
+                currentSelectionCalendarDate = new Date(Number(dateStr.substring(0, 4)), Number(dateStr.substring(4, 6)) - 1, 1);
+            }
+            setSelectionDateLabel(dateStr);
+            await loadSelection(dateStr);
 
-            loadRecommendations(dateStr);
-            closeRecDateModal();
+            if (shouldClose) {
+                closeSelectionDateModal();
+            }
         }
 
-        async function loadRecommendations(date) {
-            if (!date) return;
+        async function loadSelection(dateStr) {
+            if (!dateStr) {
+                return;
+            }
+
+            const requestedStrategyId = currentStrategyId;
+            const requestToken = nextRequestToken('selection');
 
             try {
-                const response = await fetch(buildApiUrl(`/api/recommendations/${date}`));
-                const data = await response.json();
-
-                const tbody = document.getElementById('recommendationsTableBody');
-                let html = '';
-
-                data.forEach((rec, index) => {
-                    const row = `
-                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
-                            <td class="px-4 py-3 font-medium text-white">${index + 1}</td>
-                            <td class="px-4 py-3 font-mono text-gray-300">${rec.단축코드}</td>
-                            <td class="px-4 py-3 text-white font-medium">${rec.한글명}</td>
-                            <td class="px-4 py-3 text-right hidden sm:table-cell">${rec.rank_value}</td>
-                            <td class="px-4 py-3 text-right hidden sm:table-cell">${rec.rank_momentum}</td>
-                            <td class="px-4 py-3 text-right hidden sm:table-cell">${rec.rank_quality}</td>
-                            <td class="px-4 py-3 text-right font-bold text-blue-400 hidden sm:table-cell">${rec.rank_total}</td>
-                        </tr>
-                    `;
-                    html += row;
-                });
-
-                if (data.length === 0) {
-                    html = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No recommendations found for this date.</td></tr>';
+                const data = await fetchJson(`/api/selection/${dateStr}`, 'Failed to load selection data.');
+                if (!isCurrentRequestToken('selection', requestToken, requestedStrategyId)) {
+                    return;
                 }
 
-                tbody.innerHTML = html;
-
-            } catch (e) {
-                console.error("Failed to load recommendations", e);
+                renderSelectionSections(buildSelectionStrategySections(data), dateStr);
+            } catch (error) {
+                if (!isCurrentRequestToken('selection', requestToken, requestedStrategyId)) {
+                    return;
+                }
+                console.error('Failed to load selection', error);
+                clearSelectionView(error.message || 'Error loading selection data.');
             }
         }
     </script>
