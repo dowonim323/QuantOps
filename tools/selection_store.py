@@ -73,6 +73,14 @@ def save_stock_selection(
     with sqlite3.connect(db_path) as conn:
         df.to_sql(table_name, conn, if_exists="replace", index=False)
 
+    logger.info(
+        "Saved selection snapshot. strategy_id=%s table=%s rows=%d db=%s",
+        strategy_id or "default",
+        table_name,
+        len(df),
+        db_path,
+    )
+
 
 def get_saved_selection_row_count(
     table_date: Union[str, date, datetime, None] = None,
@@ -264,10 +272,31 @@ def load_stock_selection(
             conn,
         )
 
+    strategy_label = strategy_id or "default"
+    logger.info(
+        "Loaded selection snapshot. strategy_id=%s table=%s rows=%d rerank=%s top_n=%s",
+        strategy_label,
+        table_name,
+        len(df),
+        rerank,
+        top_n,
+    )
+
     if df.empty:
+        logger.warning(
+            "Selection snapshot is empty. strategy_id=%s table=%s",
+            strategy_label,
+            table_name,
+        )
         return _trim_result(df, top_n)
 
     if not _has_required_columns(df):
+        logger.info(
+            "Returning stored selection without rerank prerequisites. strategy_id=%s table=%s rows=%d",
+            strategy_label,
+            table_name,
+            len(df),
+        )
         return _trim_result(df, top_n)
 
     df_for_rank = df.copy()
@@ -288,11 +317,35 @@ def load_stock_selection(
             df_for_rank = _recalculate_dynamic_metrics(df_with_quotes)
 
     df_after_risk = apply_risk_filters(df_for_rank)
+    logger.info(
+        "Applied risk filters to saved selection. strategy_id=%s table=%s before=%d after=%d",
+        strategy_label,
+        table_name,
+        len(df_for_rank),
+        len(df_after_risk),
+    )
     if df_after_risk.empty:
+        logger.warning(
+            "Saved selection became empty after risk filters. strategy_id=%s table=%s",
+            strategy_label,
+            table_name,
+        )
         return df_after_risk
 
     df_pre_rank = apply_smallcap_filter(df_after_risk)
+    logger.info(
+        "Applied smallcap filter to saved selection. strategy_id=%s table=%s before=%d after=%d",
+        strategy_label,
+        table_name,
+        len(df_after_risk),
+        len(df_pre_rank),
+    )
     if df_pre_rank.empty:
+        logger.warning(
+            "Saved selection became empty after smallcap filter. strategy_id=%s table=%s",
+            strategy_label,
+            table_name,
+        )
         return df_pre_rank
 
     df_ranked = get_rank(
@@ -320,11 +373,31 @@ def load_stock_selection(
                 df_for_custom["amount"] = amount_series.combine_first(fallback_amount)
 
     df_post_custom = apply_custom_selection_filters(df_for_custom)
+    logger.info(
+        "Applied custom filters to saved selection. strategy_id=%s table=%s before=%d after=%d",
+        strategy_label,
+        table_name,
+        len(df_for_custom),
+        len(df_post_custom),
+    )
     if df_post_custom.empty:
+        logger.warning(
+            "Saved selection became empty after custom filters. strategy_id=%s table=%s",
+            strategy_label,
+            table_name,
+        )
         return df_post_custom
 
     df_ranked = df_post_custom.sort_values("rank_total").reset_index(drop=True)
-    return _trim_result(df_ranked, top_n)
+    trimmed = _trim_result(df_ranked, top_n)
+    logger.info(
+        "Prepared selection snapshot for use. strategy_id=%s table=%s ranked_rows=%d returned_rows=%d",
+        strategy_label,
+        table_name,
+        len(df_ranked),
+        len(trimmed),
+    )
+    return trimmed
 
 
 __all__ = [
