@@ -95,6 +95,11 @@ def _init_db(account_id: str | None = None) -> None:
         except sqlite3.OperationalError:
             pass
 
+        try:
+            conn.execute("ALTER TABLE daily_assets ADD COLUMN opening_asset REAL")
+        except sqlite3.OperationalError:
+            pass
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS unfilled_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -185,6 +190,52 @@ def save_initial_asset(
                 deposit_d2 = excluded.deposit_d2,
                 transfer_amount = excluded.transfer_amount
         """, (date_str, asset_value, deposit_d2, transfer_amount))
+
+
+def get_opening_asset(
+    target_date: date | None = None,
+    *,
+    account_id: str | None = None,
+) -> float | None:
+    if target_date is None:
+        target_date = date.today()
+
+    _init_db(account_id)
+
+    with get_db_connection(account_id) as conn:
+        cursor = conn.execute(
+            "SELECT opening_asset FROM daily_assets WHERE date = ?",
+            (target_date.strftime("%Y-%m-%d"),),
+        )
+        row = cursor.fetchone()
+
+    if row:
+        return row[0]
+    return None
+
+
+def save_opening_asset(
+    asset_value: float,
+    target_date: date | None = None,
+    *,
+    account_id: str | None = None,
+) -> None:
+    if target_date is None:
+        target_date = date.today()
+
+    _init_db(account_id)
+    date_str = target_date.strftime("%Y-%m-%d")
+
+    with get_db_connection(account_id) as conn:
+        conn.execute(
+            """
+            INSERT INTO daily_assets (date, opening_asset)
+            VALUES (?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                opening_asset = excluded.opening_asset
+            """,
+            (date_str, asset_value),
+        )
 
 def save_final_asset(
     asset_value: float,
