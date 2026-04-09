@@ -1,83 +1,184 @@
-from flask import Flask, render_template, jsonify, request, session
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-import sqlite3
-from pathlib import Path
-from datetime import datetime
-import sys
+import logging
 import os
+import sqlite3
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
 from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request
+from flask_login import (
+    LoginManager,
+    UserMixin,
+    current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
 from werkzeug.security import check_password_hash
 
-# Load environment variables
-load_dotenv()
+WEB_DIR = Path(__file__).resolve().parent
+load_dotenv(WEB_DIR / ".env")
 
-# Add parent directory to path to allow importing tools
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
-from tools.selection_store import load_stock_selection
-from tools.financial_db import get_stock_selection_db_path
-from tools.trading_profiles import get_enabled_accounts, get_primary_selection_account
 from strategies import get_strategy_definition
+from tools.financial_db import get_stock_selection_db_path
+from tools.trading_profiles import (
+    get_enabled_accounts,
+    get_unique_strategies,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _truthy_env(var_name: str) -> bool:
+    return os.getenv(var_name, "").strip().lower() in {"1", "true", "yes", "on"}
+
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'  # Change this to a random secret key
 
-# Flask-Login Setup
+_dashboard_password_hash = os.getenv("DASHBOARD_PASSWORD_HASH")
+_dashboard_secret_key = os.getenv("DASHBOARD_SECRET_KEY") or _dashboard_password_hash
+if not _dashboard_secret_key:
+    raise RuntimeError(
+        "DASHBOARD_SECRET_KEY or DASHBOARD_PASSWORD_HASH must be configured in web/.env.",
+    )
+
+app.secret_key = _dashboard_secret_key
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=_truthy_env("DASHBOARD_COOKIE_SECURE"),
+)
+
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'
+login_manager.login_view = "login"
+
+
+class UnknownStrategyScopeError(ValueError):
+    pass
+
 
 class User(UserMixin):
-    def __init__(self, id):
-        self.id = id
+    def __init__(self, user_id: str):
+        self.id = user_id
+
 
 @login_manager.user_loader
 def load_user(user_id):
     return User(user_id)
 
-@app.route('/login', methods=['POST'])
-def login():
-    data = request.json
-    password = data.get('password')
-    
-    # Get password hash from environment variable
-    password_hash = os.getenv('DASHBOARD_PASSWORD_HASH')
-    
-    if password_hash and check_password_hash(password_hash, password):
-        user = User(id='admin')
-        login_user(user)
-        return jsonify({'success': True})
-    return jsonify({'success': False, 'message': 'Invalid password'}), 401
 
-@app.route('/logout', methods=['POST'])
-@login_required
-def logout():
-    logout_user()
-    return jsonify({'success': True})
-
-@app.route('/api/auth/status')
-def auth_status():
-    return jsonify({'authenticated': current_user.is_authenticated})
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "db" / "account" / "daily_assets.db"
 ACCOUNT_DB_DIR = BASE_DIR / "db" / "account"
 
 ENABLED_ACCOUNTS = tuple(get_enabled_accounts())
 ACCOUNT_MAP = {account.account_id: account for account in ENABLED_ACCOUNTS}
-PRIMARY_SELECTION_ACCOUNT = get_primary_selection_account(list(ENABLED_ACCOUNTS))
+ENABLED_STRATEGIES = tuple(get_unique_strategies(list(ENABLED_ACCOUNTS)))
+STRATEGY_MAP = {strategy.strategy_id: strategy for strategy in ENABLED_STRATEGIES}
+STRATEGY_ACCOUNT_MAP = {
+    strategy.strategy_id: [
+        account
+        for account in ENABLED_ACCOUNTS
+        if account.strategy_id == strategy.strategy_id
+    ]
+    for strategy in ENABLED_STRATEGIES
+}
+
+LOGIN_WINDOW = timedelta(minutes=5)
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_ATTEMPTS: dict[str, list[datetime]] = {}
 
 
-def _resolve_account_id(raw_account_id):
-    if raw_account_id in (None, "", "all"):
+def _get_client_identifier() -> str:
+    return request.remote_addr or "unknown"
+
+
+def _prune_login_attempts(client_id: str, now: datetime) -> list[datetime]:
+    attempts = [
+        attempt
+        for attempt in LOGIN_ATTEMPTS.get(client_id, [])
+        if now - attempt < LOGIN_WINDOW
+    ]
+    if attempts:
+        LOGIN_ATTEMPTS[client_id] = attempts
+    else:
+        LOGIN_ATTEMPTS.pop(client_id, None)
+    return attempts
+
+
+def _is_login_rate_limited(client_id: str) -> bool:
+    return len(_prune_login_attempts(client_id, datetime.utcnow())) >= MAX_LOGIN_ATTEMPTS
+
+
+def _record_failed_login_attempt(client_id: str) -> None:
+    now = datetime.utcnow()
+    attempts = _prune_login_attempts(client_id, now)
+    attempts.append(now)
+    LOGIN_ATTEMPTS[client_id] = attempts
+
+
+def _clear_login_attempts(client_id: str) -> None:
+    LOGIN_ATTEMPTS.pop(client_id, None)
+
+
+def _build_strategy_options() -> list[dict[str, object]]:
+    strategy_options: list[dict[str, object]] = [
+        {
+            "strategy_id": "all",
+            "display_name": "All Strategies",
+            "requires_selection": any(
+                get_strategy_definition(strategy.strategy_id).requires_selection
+                for strategy in ENABLED_STRATEGIES
+            ),
+        },
+    ]
+
+    for strategy in ENABLED_STRATEGIES:
+        strategy_def = get_strategy_definition(strategy.strategy_id)
+        strategy_options.append(
+            {
+                "strategy_id": strategy.strategy_id,
+                "display_name": strategy.display_name,
+                "requires_selection": strategy_def.requires_selection,
+            },
+        )
+
+    return strategy_options
+
+
+def _resolve_strategy_id(raw_strategy_id):
+    if raw_strategy_id in (None, "", "all"):
         return "all"
 
-    account_id = str(raw_account_id)
-    if account_id not in ACCOUNT_MAP:
-        raise KeyError(f"Unknown account_id: {account_id}")
+    strategy_id = str(raw_strategy_id)
+    if strategy_id in STRATEGY_MAP:
+        return strategy_id
 
-    return account_id
+    if strategy_id in ACCOUNT_MAP:
+        return ACCOUNT_MAP[strategy_id].strategy_id
+
+    raise UnknownStrategyScopeError(f"Unknown strategy_id: {strategy_id}")
+
+
+def _get_selected_strategy_id():
+    raw_strategy_id = request.args.get("strategy_id")
+    if raw_strategy_id is None:
+        raw_strategy_id = request.args.get("account_id", "all")
+    return _resolve_strategy_id(raw_strategy_id)
+
+
+def _iter_strategy_accounts(selected_strategy_id):
+    if selected_strategy_id == "all":
+        return list(ENABLED_ACCOUNTS)
+    return list(STRATEGY_ACCOUNT_MAP.get(selected_strategy_id, []))
+
+
+def _should_aggregate_asset_scope(selected_strategy_id: str) -> bool:
+    return selected_strategy_id == "all" or len(_iter_strategy_accounts(selected_strategy_id)) > 1
 
 
 def _resolve_account_db_path(account_id):
@@ -93,33 +194,28 @@ def get_db_connection(account_id=None):
     return conn
 
 
-def _get_selected_account_id():
-    return _resolve_account_id(request.args.get("account_id", "all"))
+def _serialize_account_row(row, account):
+    item = dict(row)
+    item["strategy_id"] = account.strategy_id
+    item["strategy_display_name"] = STRATEGY_MAP[account.strategy_id].display_name
+    if current_user.is_authenticated:
+        item["account_id"] = account.account_id
+        item["account_display_name"] = account.display_name
+    return item
 
 
-def _iter_account_ids(selected_account_id):
-    if selected_account_id == "all":
-        return [account.account_id for account in ENABLED_ACCOUNTS]
-
-    return [selected_account_id]
-
-
-def _fetch_account_rows(query, *, selected_account_id, params=()):
+def _fetch_strategy_rows(query, *, selected_strategy_id, params=()):
     rows = []
-    for account_id in _iter_account_ids(selected_account_id):
-        db_path = _resolve_account_db_path(account_id)
+    for account in _iter_strategy_accounts(selected_strategy_id):
+        db_path = _resolve_account_db_path(account.account_id)
         if not db_path.exists():
             continue
 
-        with get_db_connection(account_id) as conn:
+        with get_db_connection(account.account_id) as conn:
             fetched = conn.execute(query, params).fetchall()
 
-        account = ACCOUNT_MAP[account_id]
         for row in fetched:
-            item = dict(row)
-            item["account_id"] = account_id
-            item["account_display_name"] = account.display_name
-            rows.append(item)
+            rows.append(_serialize_account_row(row, account))
 
     return rows
 
@@ -144,245 +240,338 @@ def _aggregate_asset_rows(rows):
     return [grouped[key] for key in sorted(grouped.keys())]
 
 
-@app.route('/api/accounts')
-def get_accounts():
-    accounts = [{
-        'account_id': 'all',
-        'display_name': 'All Accounts',
-    }]
+def _list_selection_dates_for_strategy(strategy_id: str) -> list[str]:
+    strategy_def = get_strategy_definition(strategy_id)
+    if not strategy_def.requires_selection:
+        return []
 
-    if current_user.is_authenticated:
-        for account in ENABLED_ACCOUNTS:
-            accounts.append({
-                'account_id': account.account_id,
-                'display_name': account.display_name,
-            })
+    db_path = get_stock_selection_db_path(strategy_id)
+    if not db_path.exists():
+        return []
 
-    return jsonify({'accounts': accounts})
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name DESC",
+        )
+        tables = [row[0] for row in cursor.fetchall()]
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/api/assets')
-def get_assets():
-    selected_account_id = _get_selected_account_id()
-    assets = _fetch_account_rows(
-        'SELECT * FROM daily_assets ORDER BY date',
-        selected_account_id=selected_account_id,
+    return sorted(
+        [table for table in tables if table.isdigit() and len(table) == 8],
+        reverse=True,
     )
-    if selected_account_id == 'all':
+
+
+def _build_selection_section(strategy_id: str, table_date: str) -> dict[str, object]:
+    strategy = STRATEGY_MAP[strategy_id]
+    strategy_def = get_strategy_definition(strategy_id)
+    section: dict[str, object] = {
+        "strategy_id": strategy_id,
+        "strategy_display_name": strategy.display_name,
+        "requires_selection": strategy_def.requires_selection,
+        "available": False,
+        "rows": [],
+    }
+
+    if not strategy_def.requires_selection:
+        return section
+
+    db_path = get_stock_selection_db_path(strategy_id)
+    if not db_path.exists():
+        return section
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_date,),
+        )
+        if cursor.fetchone() is None:
+            return section
+
+        table_columns = {
+            row[1]
+            for row in conn.execute(f"PRAGMA table_info('{table_date}')").fetchall()
+        }
+        order_clause = "ORDER BY rank_total" if "rank_total" in table_columns else ""
+        rows = conn.execute(
+            f"SELECT * FROM '{table_date}' {order_clause} LIMIT ?",
+            (strategy.selection_top_n,),
+        ).fetchall()
+
+    section["available"] = True
+    if not rows:
+        return section
+
+    columns = [
+        "rank_total",
+        "단축코드",
+        "한글명",
+        "rank_value",
+        "rank_momentum",
+        "rank_quality",
+    ]
+    for factor in ["1/per", "1/pbr", "gp/a"]:
+        if factor in table_columns:
+            columns.append(factor)
+
+    available_columns = [column for column in columns if column in table_columns]
+    section["rows"] = [
+        {
+            column: row[column] if row[column] is not None else 0
+            for column in available_columns
+        }
+        for row in rows
+    ]
+    return section
+
+
+@app.errorhandler(UnknownStrategyScopeError)
+def handle_unknown_scope(error):
+    return jsonify({"error": str(error)}), 400
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    client_id = _get_client_identifier()
+    if _is_login_rate_limited(client_id):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Too many login attempts. Please try again later.",
+                },
+            ),
+            429,
+        )
+
+    data = request.get_json(silent=True) or {}
+    password = data.get("password", "")
+    password_hash = os.getenv("DASHBOARD_PASSWORD_HASH")
+
+    if password_hash and password and check_password_hash(password_hash, password):
+        _clear_login_attempts(client_id)
+        user = User(user_id="admin")
+        login_user(user)
+        return jsonify({"success": True})
+
+    _record_failed_login_attempt(client_id)
+    return jsonify({"success": False, "message": "Invalid password"}), 401
+
+
+@app.route("/logout", methods=["POST"])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({"success": True})
+
+
+@app.route("/api/auth/status")
+def auth_status():
+    return jsonify({"authenticated": current_user.is_authenticated})
+
+
+@app.route("/api/strategies")
+@app.route("/api/accounts")
+def get_strategies():
+    strategies = _build_strategy_options()
+    compat_accounts = [{"account_id": "all", "display_name": "All Accounts"}]
+    if current_user.is_authenticated:
+        compat_accounts.extend(
+            {
+                "account_id": account.account_id,
+                "display_name": account.display_name,
+            }
+            for account in ENABLED_ACCOUNTS
+        )
+    return jsonify({"strategies": strategies, "accounts": compat_accounts})
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/api/assets")
+def get_assets():
+    selected_strategy_id = _get_selected_strategy_id()
+    assets = _fetch_strategy_rows(
+        "SELECT * FROM daily_assets ORDER BY date",
+        selected_strategy_id=selected_strategy_id,
+    )
+    if _should_aggregate_asset_scope(selected_strategy_id):
         assets = _aggregate_asset_rows(assets)
 
-    # Filter out incomplete days (where final_asset is None or 0)
     data = []
     for row in assets:
-        if row['final_asset'] is not None and row['final_asset'] > 0:
+        if row["final_asset"] is not None and row["final_asset"] > 0:
             data.append(dict(row))
-    
-    # Calculate Cumulative Return
-    cumulative_index = 1.0
-    
-    if len(data) > 0:
-        data[0]['daily_return'] = 0.0
-        data[0]['cumulative_return'] = 0.0
-        
-    for i in range(1, len(data)):
-        prev = data[i-1]['final_asset'] or 0.0
-        curr = data[i]['final_asset'] or 0.0
-        transfer = data[i].get('transfer_amount', 0.0) or 0.0
-        
-        # Base asset for return calculation is previous close + net transfer
-        base = prev + transfer
-        
-        # Profit is current close - base
-        profit = curr - base
-        
-        daily_return = (profit / base) if base > 0 else 0.0
-        
-        # Update cumulative index
-        cumulative_index *= (1 + daily_return)
-        
-        data[i]['daily_return'] = daily_return
-        data[i]['cumulative_return'] = (cumulative_index - 1.0) * 100
 
-    # Data Scrubbing for Guest Users
+    cumulative_index = 1.0
+    if data:
+        data[0]["daily_return"] = 0.0
+        data[0]["cumulative_return"] = 0.0
+
+    for index in range(1, len(data)):
+        prev = data[index - 1]["final_asset"] or 0.0
+        curr = data[index]["final_asset"] or 0.0
+        transfer = data[index].get("transfer_amount", 0.0) or 0.0
+
+        base = prev + transfer
+        profit = curr - base
+        daily_return = (profit / base) if base > 0 else 0.0
+        cumulative_index *= 1 + daily_return
+
+        data[index]["daily_return"] = daily_return
+        data[index]["cumulative_return"] = (cumulative_index - 1.0) * 100
+
     if not current_user.is_authenticated:
-        for d in data:
-            d['final_asset'] = 0  # Mask Total Asset
-            d['transfer_amount'] = 0 # Mask Transfers
-            # daily_return and cumulative_return are percentages, so they are safe to show.
+        for item in data:
+            item["initial_asset"] = 0
+            item["final_asset"] = 0
+            item["deposit_d2"] = 0
+            item["transfer_amount"] = 0
 
     return jsonify(data)
 
-@app.route('/api/performance')
+
+@app.route("/api/performance")
 def get_performance():
-    selected_account_id = _get_selected_account_id()
-    perfs = _fetch_account_rows(
-        'SELECT * FROM daily_stock_performance ORDER BY date, symbol',
-        selected_account_id=selected_account_id,
+    selected_strategy_id = _get_selected_strategy_id()
+    performance_rows = _fetch_strategy_rows(
+        "SELECT * FROM daily_stock_performance ORDER BY date, symbol",
+        selected_strategy_id=selected_strategy_id,
     )
-    assets = _fetch_account_rows(
-        'SELECT date, final_asset FROM daily_assets WHERE final_asset IS NOT NULL',
-        selected_account_id=selected_account_id,
+    asset_rows = _fetch_strategy_rows(
+        "SELECT date, final_asset FROM daily_assets WHERE final_asset IS NOT NULL",
+        selected_strategy_id=selected_strategy_id,
     )
 
     asset_map = {}
-    for row in assets:
-        asset_map[row['date']] = asset_map.get(row['date'], 0.0) + (row['final_asset'] or 0.0)
+    for row in asset_rows:
+        asset_map[row["date"]] = asset_map.get(row["date"], 0.0) + (row["final_asset"] or 0.0)
 
-    data = perfs
-    
-    # Data Scrubbing for Guest Users
     if not current_user.is_authenticated:
-        for d in data:
-            # Mask absolute values
-            # Moved masking to end of loop to allow calculation of return/weight
-            # Return % is calculated on frontend usually, but if we mask invested/current, frontend calc will fail.
-            # We should calculate return % here if it's not in DB, or provide a 'masked_return' field?
-            # The frontend uses: (current_value - invested_amount) / invested_amount.
-            # If we set them to 0, return is NaN.
-            # So we MUST calculate return rate here and send it, OR send fake values that result in correct return?
-            # Fake values are risky. Better to send explicit return_rate if possible.
-            # But frontend logic is complex.
-            # Alternative: Send a special flag 'is_masked': True.
-            # And let frontend handle display.
-            # But we must NOT send real data.
-            # So we calculate return rate here.
-            
-            invested = d['invested_amount']
-            current = d['current_value']
-            sell = d['sell_amount']
-            date = d['date']
-            
-            # Calculate Return Rate
+        for item in performance_rows:
+            invested = item.get("invested_amount", 0) or 0
+            current_value = item.get("current_value", 0) or 0
+            sell_amount = item.get("sell_amount", 0) or 0
+            row_date = item.get("date")
+
             if invested > 0:
-                d['return_rate'] = ((current + sell) - invested) / invested * 100
+                item["return_rate"] = ((current_value + sell_amount) - invested) / invested * 100
             else:
-                d['return_rate'] = 0
-                
-            # Calculate Weight (Portfolio Allocation)
-            total_asset = asset_map.get(date, 0)
+                item["return_rate"] = 0
+
+            total_asset = asset_map.get(row_date, 0)
             if total_asset > 0:
-                d['weight'] = (current / total_asset) * 100
+                item["weight"] = (current_value / total_asset) * 100
             else:
-                d['weight'] = 0
-                
-            # Now we can safely zero out the amounts
-            d['invested_amount'] = 0
-            d['current_value'] = 0
-            d['quantity'] = 0
-            d['average_price'] = 0
-            d['current_price'] = 0 
-            d['sell_amount'] = 0
-            d['sell_quantity'] = 0
-            
-    return jsonify(data)
+                item["weight"] = 0
 
-@app.route('/api/orders')
+            item["invested_amount"] = 0
+            item["current_value"] = 0
+            item["quantity"] = 0
+            item["average_price"] = 0
+            item["current_price"] = 0
+            item["sell_amount"] = 0
+            item["sell_quantity"] = 0
+
+    return jsonify(performance_rows)
+
+
+@app.route("/api/orders")
 def get_orders():
-    selected_account_id = _get_selected_account_id()
-    data = _fetch_account_rows(
-        'SELECT * FROM daily_orders ORDER BY date DESC, time DESC',
-        selected_account_id=selected_account_id,
+    selected_strategy_id = _get_selected_strategy_id()
+    data = _fetch_strategy_rows(
+        "SELECT * FROM daily_orders ORDER BY date DESC, time DESC",
+        selected_strategy_id=selected_strategy_id,
     )
-    data.sort(key=lambda row: (row['date'], row['time']), reverse=True)
-    
+    data.sort(key=lambda row: (row["date"], row["time"]), reverse=True)
+
     if not current_user.is_authenticated:
-        for d in data:
-            d['price'] = 0
-            d['qty'] = 0
-            d['executed_qty'] = 0
-            # Keep symbol, type, date, time
-            
+        for item in data:
+            item["price"] = 0
+            item["qty"] = 0
+            item["executed_qty"] = 0
+
     return jsonify(data)
 
-@app.route('/api/analytics')
+
+@app.route("/api/analytics")
 def get_analytics():
-    selected_account_id = _get_selected_account_id()
-    assets = _fetch_account_rows(
-        'SELECT * FROM daily_assets ORDER BY date ASC',
-        selected_account_id=selected_account_id,
+    selected_strategy_id = _get_selected_strategy_id()
+    assets = _fetch_strategy_rows(
+        "SELECT * FROM daily_assets ORDER BY date ASC",
+        selected_strategy_id=selected_strategy_id,
     )
-    if selected_account_id == 'all':
+    if _should_aggregate_asset_scope(selected_strategy_id):
         assets = _aggregate_asset_rows(assets)
-    
-    # Filter out incomplete days
+
     data = []
     for row in assets:
-        if row['final_asset'] is not None and row['final_asset'] > 0:
+        if row["final_asset"] is not None and row["final_asset"] > 0:
             data.append(dict(row))
-    
+
     if not data:
         return jsonify({})
-    
-    # Calculate Daily Returns
-    for i in range(1, len(data)):
-        prev = data[i-1]['final_asset'] or 0.0
-        curr = data[i]['final_asset'] or 0.0
-        transfer = data[i].get('transfer_amount', 0.0) or 0.0
-        
-        # Base asset for return calculation is previous close + net transfer
+
+    for index in range(1, len(data)):
+        prev = data[index - 1]["final_asset"] or 0.0
+        curr = data[index]["final_asset"] or 0.0
+        transfer = data[index].get("transfer_amount", 0.0) or 0.0
+
         base = prev + transfer
-        
-        # Profit is current close - base
         profit = curr - base
-        
-        data[i]['daily_return'] = (profit / base) if base > 0 else 0.0
-        data[i]['daily_profit'] = profit
-    
-    if len(data) > 0:
-        data[0]['daily_return'] = 0.0
-        data[0]['daily_profit'] = 0.0
+
+        data[index]["daily_return"] = (profit / base) if base > 0 else 0.0
+        data[index]["daily_profit"] = profit
+
+    data[0]["daily_return"] = 0.0
+    data[0]["daily_profit"] = 0.0
 
     if not current_user.is_authenticated:
-        for d in data:
-            d['final_asset'] = 0
-            d['daily_profit'] = 0
-            d['transfer_amount'] = 0
+        for item in data:
+            item["initial_asset"] = 0
+            item["final_asset"] = 0
+            item["deposit_d2"] = 0
+            item["daily_profit"] = 0
+            item["transfer_amount"] = 0
 
-    # 1. MDD Calculation (Based on Cumulative Return)
-    # We must use cumulative return index to filter out deposit/withdrawal effects
     cumulative_index = 1.0
     peak_index = 1.0
     mdd = 0.0
-    drawdowns = []
-    
-    # Initialize first day
-    if len(data) > 0:
-        drawdowns.append({'date': data[0]['date'], 'drawdown': 0.0})
+    drawdowns = [{"date": data[0]["date"], "drawdown": 0.0}]
 
-    for i in range(1, len(data)):
-        # daily_return is already calculated above
-        r = data[i].get('daily_return', 0.0)
-        
-        # Update cumulative index
-        cumulative_index *= (1 + r)
-        
-        # Update Peak
+    for index in range(1, len(data)):
+        daily_return = data[index].get("daily_return", 0.0)
+        cumulative_index *= 1 + daily_return
+
         if cumulative_index > peak_index:
             peak_index = cumulative_index
-            
-        # Calculate Drawdown
-        dd = (cumulative_index - peak_index) / peak_index if peak_index > 0 else 0.0
-        
-        drawdowns.append({'date': data[i]['date'], 'drawdown': dd * 100})
-        
-        if dd < mdd:
-            mdd = dd
 
-    # 2. Win Rate & Best/Worst
-    daily_returns = [d['daily_return'] for d in data if d['date'] != data[0]['date']] # Exclude first day
+        drawdown = (
+            (cumulative_index - peak_index) / peak_index
+            if peak_index > 0
+            else 0.0
+        )
+
+        drawdowns.append({"date": data[index]["date"], "drawdown": drawdown * 100})
+        if drawdown < mdd:
+            mdd = drawdown
+
+    daily_returns = [
+        item["daily_return"]
+        for item in data
+        if item["date"] != data[0]["date"]
+    ]
     if daily_returns:
-        wins = [r for r in daily_returns if r > 0]
+        wins = [item for item in daily_returns if item > 0]
         win_rate = len(wins) / len(daily_returns) * 100
         best_day = max(daily_returns) * 100
         worst_day = min(daily_returns) * 100
-        
-        # Volatility (Std Dev of daily returns) * sqrt(252) for annualized? 
-        # Let's just do daily volatility for now or simple std dev
-        mean_ret = sum(daily_returns) / len(daily_returns)
-        variance = sum((x - mean_ret) ** 2 for x in daily_returns) / len(daily_returns)
+
+        mean_return = sum(daily_returns) / len(daily_returns)
+        variance = sum((item - mean_return) ** 2 for item in daily_returns) / len(daily_returns)
         volatility = (variance ** 0.5) * 100
     else:
         win_rate = 0
@@ -390,94 +579,86 @@ def get_analytics():
         worst_day = 0
         volatility = 0
 
-    # 3. Monthly Returns (Based on Compounded Daily Returns)
     monthly_returns_map = {}
-    
     for day in data:
-        month_key = day['date'][:7] # YYYY-MM
+        month_key = day["date"][:7]
         if month_key not in monthly_returns_map:
             monthly_returns_map[month_key] = 1.0
-        
-        # Compound the daily return
-        r = day.get('daily_return', 0.0)
-        monthly_returns_map[month_key] *= (1 + r)
+        monthly_returns_map[month_key] *= 1 + day.get("daily_return", 0.0)
 
-    # Format for response
-    sorted_months = sorted(monthly_returns_map.keys())
-    monthly_returns = []
-    
-    for m in sorted_months:
-        # Convert cumulative factor to percentage return
-        m_return = (monthly_returns_map[m] - 1.0) * 100
-        monthly_returns.append({'month': m, 'return': m_return})
+    monthly_returns = [
+        {"month": month, "return": (monthly_returns_map[month] - 1.0) * 100}
+        for month in sorted(monthly_returns_map.keys())
+    ]
 
-    return jsonify({
-        'mdd': mdd * 100,
-        'win_rate': win_rate,
-        'best_day': best_day,
-        'worst_day': worst_day,
-        'volatility': volatility,
-        'mdd_history': drawdowns,
-        'monthly_returns': monthly_returns,
-        'daily_returns': [{'date': d['date'], 'daily_return': d.get('daily_return', 0.0) * 100, 'daily_profit': d.get('daily_profit', 0.0)} for d in data]
-    })
+    return jsonify(
+        {
+            "mdd": mdd * 100,
+            "win_rate": win_rate,
+            "best_day": best_day,
+            "worst_day": worst_day,
+            "volatility": volatility,
+            "mdd_history": drawdowns,
+            "monthly_returns": monthly_returns,
+            "daily_returns": [
+                {
+                    "date": item["date"],
+                    "daily_return": item.get("daily_return", 0.0) * 100,
+                    "daily_profit": item.get("daily_profit", 0.0),
+                }
+                for item in data
+            ],
+        },
+    )
 
-@app.route('/api/recommendations/dates')
-def get_recommendation_dates():
-    selected_account_id = _get_selected_account_id()
-    recommendation_account_id = PRIMARY_SELECTION_ACCOUNT.account_id if selected_account_id == 'all' else selected_account_id
-    strategy_id = ACCOUNT_MAP[recommendation_account_id].strategy_id
-    strategy_def = get_strategy_definition(strategy_id)
-    if not strategy_def.requires_selection:
-        return jsonify([])
 
-    db_path = get_stock_selection_db_path(strategy_id)
-    if not db_path.exists():
-        return jsonify([])
-    
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name DESC")
-        tables = [row[0] for row in cursor.fetchall()]
-        
-    # Filter for YYYYMMDD format
-    dates = [t for t in tables if t.isdigit() and len(t) == 8]
-    return jsonify(dates)
+@app.route("/api/selection/dates")
+@app.route("/api/recommendations/dates")
+def get_selection_dates():
+    selected_strategy_id = _get_selected_strategy_id()
+    strategy_ids = (
+        [strategy.strategy_id for strategy in ENABLED_STRATEGIES]
+        if selected_strategy_id == "all"
+        else [selected_strategy_id]
+    )
 
-@app.route('/api/recommendations/<date>')
-def get_recommendations(date):
+    dates = set()
+    for strategy_id in strategy_ids:
+        dates.update(_list_selection_dates_for_strategy(strategy_id))
+
+    return jsonify(sorted(dates, reverse=True))
+
+
+@app.route("/api/selection/<date>")
+@app.route("/api/recommendations/<date>")
+def get_selection(date):
+    selected_strategy_id = _get_selected_strategy_id()
+    strategy_ids = (
+        [strategy.strategy_id for strategy in ENABLED_STRATEGIES]
+        if selected_strategy_id == "all"
+        else [selected_strategy_id]
+    )
+
     try:
-        selected_account_id = _get_selected_account_id()
-        recommendation_account_id = PRIMARY_SELECTION_ACCOUNT.account_id if selected_account_id == 'all' else selected_account_id
-        strategy_id = ACCOUNT_MAP[recommendation_account_id].strategy_id
-        strategy_def = get_strategy_definition(strategy_id)
-        if not strategy_def.requires_selection:
-            return jsonify([])
+        sections = [
+            _build_selection_section(strategy_id, date)
+            for strategy_id in strategy_ids
+        ]
+    except Exception:
+        logger.exception("Failed to load selection data. strategy_id=%s date=%s", selected_strategy_id, date)
+        return jsonify({"error": "Failed to load selection data."}), 500
 
-        df = load_stock_selection(
-            table_date=date,
-            kis=None,
-            rerank=False,
-            top_n=20,
-            strategy_id=strategy_id,
-        )
-        if df.empty:
-            return jsonify([])
-        
-        # Select relevant columns
-        cols = ['rank_total', '단축코드', '한글명', 'rank_value', 'rank_momentum', 'rank_quality']
-        # Add some factor columns if they exist
-        factors = ['1/per', '1/pbr', 'gp/a']
-        for f in factors:
-            if f in df.columns:
-                cols.append(f)
-                
-        # Handle NaN values for JSON serialization
-        df = df.fillna(0) # Or None, but 0 is safer for numbers
-        
-        result = df[cols].to_dict(orient='records')
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return jsonify(
+        {
+            "selected_strategy_id": selected_strategy_id,
+            "strategies": sections,
+        },
+    )
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, port=15000)
+
+if __name__ == "__main__":
+    app.run(
+        host="0.0.0.0",
+        debug=_truthy_env("FLASK_DEBUG"),
+        port=15000,
+    )
