@@ -15,10 +15,12 @@ from strategies.base import StrategyRuntimeContext
 from tools.account_record import (
     get_daily_asset,
     get_latest_stock_performance,
+    get_opening_asset,
     get_previous_final_asset,
     save_daily_orders,
     save_final_asset,
     save_initial_asset,
+    save_opening_asset,
     save_stock_performance,
 )
 from tools.logger import setup_logging
@@ -179,9 +181,36 @@ def _load_or_capture_initial_asset(
     return initial_asset, transfer_amount
 
 
+def _load_or_capture_opening_asset(
+    account: AccountProfile,
+    kis: PyKis,
+    initial_asset: float,
+    *,
+    account_logger: logging.Logger,
+) -> float:
+    db_opening_asset = get_opening_asset(account_id=account.account_id)
+    if db_opening_asset is not None:
+        account_logger.info("Loaded opening asset from DB: %s", f"{db_opening_asset:,.0f}")
+        return db_opening_asset
+
+    try:
+        balance = get_balance_safe(kis.account(), verbose=True)
+        opening_asset = float(balance.total)
+        save_opening_asset(opening_asset, account_id=account.account_id)
+        account_logger.info("Saved opening asset to DB: %s", f"{opening_asset:,.0f}")
+        return opening_asset
+    except Exception as exc:
+        account_logger.warning(
+            "Failed to capture opening asset after market open: %s. Falling back to initial asset.",
+            exc,
+        )
+        return initial_asset
+
+
 def finalize_trading_day(
     kis: PyKis,
     initial_asset: float,
+    opening_asset: float | None,
     transfer_amount: float,
     *,
     account: AccountProfile,
@@ -214,11 +243,12 @@ def finalize_trading_day(
             deposit_d2 = 0.0
 
         try:
-            diff_open = final_asset - initial_asset
-            diff_open_rate = (diff_open / initial_asset * 100) if initial_asset > 0 else 0.0
+            open_asset = opening_asset if opening_asset is not None else initial_asset
+            diff_open = final_asset - open_asset
+            diff_open_rate = (diff_open / open_asset * 100) if open_asset > 0 else 0.0
 
             prev_asset, _ = get_previous_final_asset(account_id=account.account_id)
-            if prev_asset:
+            if prev_asset is not None:
                 base_asset = prev_asset + transfer_amount
                 diff_prev = final_asset - base_asset
                 diff_prev_rate = (diff_prev / base_asset * 100) if base_asset > 0 else 0.0
@@ -387,6 +417,7 @@ def run_account(account: AccountProfile) -> AccountRunStatus:
     ticket_kospi = None
     ticket_kosdaq = None
     initial_asset = 0.0
+    opening_asset: float | None = None
     transfer_amount = 0.0
     market_open_detected = False
     market_close_completed = False
@@ -451,9 +482,23 @@ def run_account(account: AccountProfile) -> AccountRunStatus:
 
             time.sleep(10)
 
+        opening_asset = _load_or_capture_opening_asset(
+            account,
+            kis,
+            initial_asset,
+            account_logger=account_logger,
+        )
         account_logger.info("Market is open.")
 
-        msg = f"Market Open: {market_open_time.strftime('%H:%M:%S')}\nInitial Asset: {initial_asset:,.0f} KRW"
+        open_gap = opening_asset - initial_asset
+        open_gap_rate = (open_gap / initial_asset * 100) if initial_asset > 0 else 0.0
+
+        msg = (
+            f"Market Open: {market_open_time.strftime('%H:%M:%S')}\n"
+            f"Initial Asset: {initial_asset:,.0f} KRW\n"
+            f"Opening Asset: {opening_asset:,.0f} KRW\n"
+            f"Gap at Open: {open_gap:+,.0f} ({open_gap_rate:+.2f}%)"
+        )
         if transfer_amount != 0:
             msg += f"\n(Net Transfer: {transfer_amount:+,.0f})"
         _notify(account, msg, title="Market Open & Initial Asset", tags=("moneybag",))
@@ -497,6 +542,7 @@ def run_account(account: AccountProfile) -> AccountRunStatus:
             finalize_trading_day(
                 kis,
                 initial_asset,
+                opening_asset,
                 transfer_amount,
                 account=account,
                 account_logger=account_logger,
