@@ -177,7 +177,14 @@ def _append_error(
 ) -> None:
     """errors 리스트에 일관된 포맷으로 오류를 추가합니다."""
     errors.append(
-        {"symbol": symbol, "market": market, "qty": qty, "price": price, "error": repr(exc)}
+        {
+            "type": "execution_error",
+            "symbol": symbol,
+            "market": market,
+            "qty": qty,
+            "price": price,
+            "error": repr(exc),
+        }
     )
 
 
@@ -1133,7 +1140,7 @@ def _execute_with_retry(
     주문 생성 및 체결 대기 로직을 재시도와 함께 실행하는 헬퍼 함수입니다.
     """
     all_orders: list[Any] = []
-    all_errors: list[dict[str, Any]] = []
+    final_errors: list[dict[str, Any]] = []
     retries = 0
 
     while retries < max_retries:
@@ -1144,7 +1151,7 @@ def _execute_with_retry(
 
         orders, errors = attempt_func()
         all_orders.extend(orders)
-        all_errors.extend(errors)
+        final_errors = list(errors)
 
         has_unfilled = any(e.get("type") == "unfilled" for e in errors)
 
@@ -1199,7 +1206,7 @@ def _execute_with_retry(
                             _print_with_timestamp(f"주문 취소 실패: {e}")
             time.sleep(1)
 
-    return all_orders, all_errors
+    return all_orders, final_errors
 
 def rebalance(
     kis: "PyKis",
@@ -1235,6 +1242,13 @@ def rebalance(
     target_codes = list(stocks_selected.keys())
     if not target_codes:
         raise ValueError("stocks_selected에는 최소 한 개의 종목이 필요합니다.")
+
+    logger.info(
+        "Rebalance started. target_symbols=%d cash_ratio=%.4f weight_mode=%s",
+        len(target_codes),
+        cash_ratio,
+        "custom" if target_weights is not None else "equal_weight",
+    )
 
     def _resolve_target_values(balance_amount: float) -> dict[str, float]:
         investable_amount = float(balance_amount) * (1 - cash_ratio)
@@ -1287,7 +1301,14 @@ def rebalance(
             stock_scope = kis.stock(symbol)
             non_target_positions[symbol] = (stock_scope, qty)
 
+        logger.info(
+            "Step 1 prepared non-target liquidation set. holdings=%d sell_candidates=%d",
+            len(holdings),
+            len(non_target_positions),
+        )
+
         if not non_target_positions:
+            logger.info("Step 1 skipped: no non-target positions with orderable quantity.")
             return [], []
 
         return sell_qty(
@@ -1342,7 +1363,14 @@ def rebalance(
             stock_scope = stocks_selected.get(symbol) or kis.stock(symbol)
             excess_positions[symbol] = (stock_scope, holding_value, target_value)
 
+        logger.info(
+            "Step 2 prepared trim set. holdings=%d trim_candidates=%d",
+            len(holdings),
+            len(excess_positions),
+        )
+
         if not excess_positions:
+            logger.info("Step 2 skipped: no positions exceeded target values.")
             return [], []
 
         return sell_value(
@@ -1387,7 +1415,14 @@ def rebalance(
 
             buy_candidates[symbol] = (stock, holding_value, target_value)
 
+        logger.info(
+            "Step 3 prepared buy set. target_symbols=%d buy_candidates=%d",
+            len(stocks_selected),
+            len(buy_candidates),
+        )
+
         if not buy_candidates:
+            logger.info("Step 3 skipped: no positions required additional buy orders.")
             return [], []
 
         return buy_value(
@@ -1414,6 +1449,12 @@ def rebalance(
     )
     orders.extend(s3_orders)
     errors.extend(s3_errors)
+
+    logger.info(
+        "Rebalance finished. orders=%d errors=%d",
+        len(orders),
+        len(errors),
+    )
 
     return {
         "orders": orders,
@@ -1448,14 +1489,22 @@ def sell_all(
     def attempt() -> tuple[list[Any], list[dict[str, Any]]]:
         balance = get_balance_safe(account, max_retries=max_retries, verbose=verbose, country=country)
         stocks = {}
+        holdings = getattr(balance, "stocks", [])
 
-        for stock in getattr(balance, "stocks", []):
+        for stock in holdings:
             symbol = getattr(stock, "symbol", None)
             qty = int(getattr(stock, "orderable", 0))
             if symbol and qty > 0:
                 stocks[symbol] = (kis.stock(symbol), qty)
 
+        logger.info(
+            "Sell all prepared liquidation set. holdings=%d sell_candidates=%d",
+            len(holdings),
+            len(stocks),
+        )
+
         if not stocks:
+            logger.info("Sell all skipped: no orderable holdings.")
             return [], []
 
         return sell_qty(
@@ -1479,6 +1528,12 @@ def sell_all(
         attempt_func=attempt,
         check_alive=check_alive,
         max_sub_retries=max_sub_retries,
+    )
+
+    logger.info(
+        "Sell all finished. orders=%d errors=%d",
+        len(all_orders),
+        len(all_errors),
     )
 
     return {"orders": all_orders, "errors": all_errors}
@@ -1508,8 +1563,55 @@ def get_account_state(kis: PyKis) -> tuple[str, float]:
         if qty > 0:
             has_stocks = True
             break
-            
+    
     return "STOCK" if has_stocks else "CASH", float(balance.amount)
+
+
+def _count_execution_errors(errors: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for error in errors:
+        error_type = str(error.get("type") or "unknown")
+        counts[error_type] = counts.get(error_type, 0) + 1
+    return counts
+
+
+def _summarize_execution_result(
+    *,
+    action: str,
+    context: str,
+    result: Mapping[str, list[Any]],
+) -> tuple[bool, str, str, tuple[str, ...]]:
+    orders = list(result.get("orders", []))
+    errors = list(result.get("errors", []))
+    context_prefix = f"{context} " if context else ""
+
+    if errors:
+        error_counts = ", ".join(
+            f"{error_type}={count}"
+            for error_type, count in sorted(_count_execution_errors(errors).items())
+        )
+        return (
+            False,
+            f"{context_prefix}{action} finished with warnings. "
+            f"orders={len(orders)}, errors={len(errors)}, error_types={error_counts}",
+            "Trade Warning",
+            ("warning",),
+        )
+
+    if not orders:
+        return (
+            True,
+            f"{context_prefix}{action} completed with no orders required.",
+            "Trade Complete",
+            ("white_check_mark",),
+        )
+
+    return (
+        True,
+        f"{context_prefix}{action} executed successfully. orders={len(orders)}",
+        "Trade Complete",
+        ("white_check_mark",),
+    )
 
 
 def execute_rebalance_safe(
@@ -1528,7 +1630,13 @@ def execute_rebalance_safe(
     예외 처리, 알림 전송, 타임아웃 설정을 캡슐화합니다.
     """
     try:
-        rebalance(
+        logger.info(
+            "Starting BUY execution. context=%s target_symbols=%d weight_mode=%s",
+            context or "rebalance",
+            len(stocks_selected),
+            "custom" if target_weights is not None else "equal_weight",
+        )
+        result = rebalance(
             kis, 
             stocks_selected, 
             cash_ratio=cash_ratio, 
@@ -1539,8 +1647,17 @@ def execute_rebalance_safe(
             check_alive=check_alive,
             max_sub_retries=max_sub_retries
         )
-        send_notification("trade_execution", f"{context} BUY executed.", title="Trade Complete", tags=("white_check_mark",))
-        return True
+        success, message, title, tags = _summarize_execution_result(
+            action="BUY",
+            context=context,
+            result=result,
+        )
+        if success:
+            logger.info("%s", message)
+        else:
+            logger.warning("%s", message)
+        send_notification("trade_execution", message, title=title, tags=tags)
+        return success
     except Exception as e:
         logger.error(f"Error during {context} buy: {e}", exc_info=True)
         send_notification("trade_execution", f"Error during {context} buy: {e}", title="Trading Error", tags=("warning",))
@@ -1560,7 +1677,8 @@ def execute_sell_all_safe(
     예외 처리, 알림 전송, 타임아웃 설정을 캡슐화합니다.
     """
     try:
-        sell_all(
+        logger.info("Starting SELL execution. context=%s", context or "sell_all")
+        result = sell_all(
             kis, 
             verbose=True, 
             order_timeout=order_timeout,
@@ -1568,8 +1686,17 @@ def execute_sell_all_safe(
             check_alive=check_alive,
             max_sub_retries=max_sub_retries
         )
-        send_notification("trade_execution", f"{context} SELL executed.", title="Trade Complete", tags=("white_check_mark",))
-        return True
+        success, message, title, tags = _summarize_execution_result(
+            action="SELL",
+            context=context,
+            result=result,
+        )
+        if success:
+            logger.info("%s", message)
+        else:
+            logger.warning("%s", message)
+        send_notification("trade_execution", message, title=title, tags=tags)
+        return success
     except Exception as e:
         logger.error(f"Error during {context} sell: {e}", exc_info=True)
         send_notification("trade_execution", f"Error during {context} sell: {e}", title="Trading Error", tags=("warning",))
