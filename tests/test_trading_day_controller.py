@@ -38,13 +38,17 @@ class TestTradingDayController(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_outside_window_does_not_start_session(self):
-        with patch("pipelines.trading_day_controller.get_enabled_accounts", return_value=self.accounts), patch(
+        with self.assertLogs("pipelines.trading_day_controller", level="INFO") as logs, patch(
+            "pipelines.trading_day_controller.get_enabled_accounts",
+            return_value=self.accounts,
+        ), patch(
             "pipelines.trading_day_controller.run_trading_session",
         ) as session_mock:
             result = run_trading_day_once(datetime(2026, 4, 8, 7, 0, 0))
 
         self.assertEqual(result, "outside_window")
         session_mock.assert_not_called()
+        self.assertIn("outside launch window", "\n".join(logs.output))
 
     def test_launches_trading_session_once_per_day(self):
         with patch("pipelines.trading_day_controller.get_enabled_accounts", return_value=self.accounts), patch(
@@ -74,7 +78,7 @@ class TestTradingDayController(unittest.TestCase):
         self.assertIsNotNone(state["session_finished_at"])
 
     def test_launches_without_saved_selection(self):
-        with patch(
+        with self.assertLogs("pipelines.trading_day_controller", level="INFO") as logs, patch(
             "pipelines.trading_day_controller.get_enabled_accounts",
             return_value=self.accounts,
         ), patch(
@@ -96,6 +100,9 @@ class TestTradingDayController(unittest.TestCase):
         self.assertIn("Buy/rebalance paths may be skipped", state["launch_reason"])
         self.assertIsNotNone(state["last_heartbeat_at"])
         session_mock.assert_called_once()
+        output = "\n".join(logs.output)
+        self.assertIn("Trading day launch degraded", output)
+        self.assertIn("Trading day session completed", output)
 
     def test_exposes_running_phase_and_heartbeat_during_session(self):
         observed_state: dict[str, object] = {}
@@ -145,7 +152,10 @@ class TestTradingDayController(unittest.TestCase):
             phase="launching",
         )
 
-        with patch("pipelines.trading_day_controller.get_enabled_accounts", return_value=self.accounts), patch(
+        with self.assertLogs("pipelines.trading_day_controller", level="WARNING") as logs, patch(
+            "pipelines.trading_day_controller.get_enabled_accounts",
+            return_value=self.accounts,
+        ), patch(
             "pipelines.trading_day_controller.send_notification",
         ) as notify_mock, patch("pipelines.trading_day_controller.run_trading_session") as session_mock:
             result = run_trading_day_once(self.current_dt)
@@ -156,6 +166,7 @@ class TestTradingDayController(unittest.TestCase):
         self.assertTrue(state["manual_review_required"])
         notify_mock.assert_called_once()
         session_mock.assert_not_called()
+        self.assertIn("current-day session requires manual review", "\n".join(logs.output))
 
     def test_abnormal_session_result_requires_manual_review(self):
         with patch("pipelines.trading_day_controller.get_enabled_accounts", return_value=self.accounts), patch(
@@ -231,7 +242,10 @@ class TestTradingDayController(unittest.TestCase):
             error_text="pending review",
         )
 
-        with patch("pipelines.trading_day_controller.get_enabled_accounts", return_value=self.accounts), patch(
+        with self.assertLogs("pipelines.trading_day_controller", level="WARNING") as logs, patch(
+            "pipelines.trading_day_controller.get_enabled_accounts",
+            return_value=self.accounts,
+        ), patch(
             "pipelines.trading_day_controller.send_notification",
         ) as notify_mock, patch("pipelines.trading_day_controller.run_trading_session") as session_mock:
             result = run_trading_day_once(self.current_dt)
@@ -243,6 +257,7 @@ class TestTradingDayController(unittest.TestCase):
         self.assertIn("2026-04-07:krx_vmq", state["error_text"])
         notify_mock.assert_called_once()
         session_mock.assert_not_called()
+        self.assertIn("unresolved prior manual reviews", "\n".join(logs.output))
 
     def test_clearing_prior_day_review_allows_new_launch(self):
         scheduler_state.save_trading_day_state(

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 import time
 from datetime import date, datetime, time as dt_time
+from pathlib import Path
 from typing import Mapping, get_args
 
 from pipelines.trading_session import AccountRunStatus, run_trading_session
 from strategies import get_strategy_definition
+from tools.logger import configure_entrypoint_logging
 from tools.notifications import send_notification
 from tools.scheduler_state import (
     list_unresolved_trading_day_reviews,
@@ -29,19 +30,11 @@ KNOWN_SESSION_STATUSES = frozenset(get_args(AccountRunStatus))
 ABNORMAL_SESSION_STATUSES = frozenset({"error", "interrupted"})
 
 logger = logging.getLogger(__name__)
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _configure_logging() -> None:
-    if logging.getLogger().handlers:
-        return
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
-        force=True,
-    )
+    configure_entrypoint_logging(BASE_DIR)
 
 
 def _load_states(
@@ -116,6 +109,15 @@ def _launch_metadata(
                     f"Saved selection is empty for {account.strategy_id}. "
                     "Buy/rebalance paths may be skipped while sell-capable monitoring continues."
                 )
+
+        if launch_mode != "normal":
+            logger.warning(
+                "Trading day launch degraded for %s account %s: %s (%s)",
+                run_date.isoformat(),
+                account.account_id,
+                launch_mode,
+                launch_reason,
+            )
 
         metadata[account.account_id] = {
             "launch_mode": launch_mode,
@@ -233,10 +235,18 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
 
     with scheduler_lock("trading_day") as acquired:
         if not acquired:
+            logger.info(
+                "Trading day launch skipped for %s: controller lock not acquired.",
+                run_date.isoformat(),
+            )
             return "locked"
 
         states = _load_states(run_date, accounts)
         if all(state["status"] == "completed" for state in states.values()):
+            logger.info(
+                "Trading day launch skipped for %s: all account states already completed.",
+                run_date.isoformat(),
+            )
             return "completed"
 
         if any(
@@ -260,6 +270,10 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
                 manual_review_required=True,
                 title="Trading Day Manual Review Required",
             )
+            logger.warning(
+                "Trading day launch blocked for %s: current-day session requires manual review.",
+                run_date.isoformat(),
+            )
             return "blocked"
 
         if not within_kst_window(
@@ -267,6 +281,13 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
             start=LAUNCH_WINDOW_START,
             end=LAUNCH_WINDOW_END,
         ):
+            logger.info(
+                "Trading day launch skipped for %s at %s: outside launch window %s-%s.",
+                run_date.isoformat(),
+                resolved_dt.isoformat(),
+                LAUNCH_WINDOW_START.isoformat(),
+                LAUNCH_WINDOW_END.isoformat(),
+            )
             return "outside_window"
 
         account_ids = [account.account_id for account in accounts]
@@ -291,10 +312,26 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
                 manual_review_required=False,
                 title="Trading Day Waiting For Manual Review",
             )
+            logger.warning(
+                "Trading day launch blocked for %s: unresolved prior manual reviews (%s).",
+                run_date.isoformat(),
+                ", ".join(
+                    f"{review['run_date']}:{review['account_id']}"
+                    for review in prior_reviews
+                ),
+            )
             return "blocked"
 
         launch_metadata = _launch_metadata(run_date, accounts)
         session_started_at = resolved_dt.isoformat()
+        logger.info(
+            "Trading day session starting for %s with launch modes: %s",
+            run_date.isoformat(),
+            ", ".join(
+                f"{account_id}={metadata['launch_mode']}"
+                for account_id, metadata in sorted(launch_metadata.items())
+            ),
+        )
         _save_running_states(
             run_date,
             accounts,
@@ -310,6 +347,12 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
             heartbeat_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
             previous_states = _load_states(run_date, accounts)
             message = f"Trading day controller failed for {run_date.isoformat()}: {exc}"
+            logger.error(
+                "Trading day session failed for %s: %s",
+                run_date.isoformat(),
+                exc,
+                exc_info=True,
+            )
             for account in accounts:
                 state = previous_states[account.account_id]
                 save_trading_day_state(
@@ -334,11 +377,21 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
         heartbeat_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
 
         previous_states = _load_states(run_date, accounts)
+        logger.info(
+            "Trading day session returned results for %s: %s",
+            run_date.isoformat(),
+            results,
+        )
         missing_accounts = [account.account_id for account in accounts if account.account_id not in results]
         if missing_accounts:
             message = (
                 f"Trading day session for {run_date.isoformat()} requires manual review.\n"
                 f"Missing account results: {', '.join(missing_accounts)}"
+            )
+            logger.error(
+                "Trading day session blocked for %s: missing account results for %s.",
+                run_date.isoformat(),
+                ", ".join(missing_accounts),
             )
             for account in accounts:
                 state = previous_states[account.account_id]
@@ -367,6 +420,11 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
         }
         if unknown_results:
             message = _unknown_session_result_error(run_date, unknown_results)
+            logger.error(
+                "Trading day session blocked for %s: unknown account results %s.",
+                run_date.isoformat(),
+                unknown_results,
+            )
             for account in accounts:
                 state = previous_states[account.account_id]
                 save_trading_day_state(
@@ -389,6 +447,11 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
 
         if any(status in ABNORMAL_SESSION_STATUSES for status in results.values()):
             message = _session_result_error(run_date, results)
+            logger.warning(
+                "Trading day session blocked for %s: abnormal account results %s.",
+                run_date.isoformat(),
+                results,
+            )
             for account in accounts:
                 state = previous_states[account.account_id]
                 save_trading_day_state(
@@ -419,6 +482,10 @@ def run_trading_day_once(current_dt: datetime | None = None) -> str:
             last_heartbeat_at=session_finished_at,
             error_text=None,
             manual_review_required=False,
+        )
+        logger.info(
+            "Trading day session completed for %s.",
+            run_date.isoformat(),
         )
         return "completed"
 

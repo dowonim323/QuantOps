@@ -37,7 +37,9 @@ class TestNightlyPrepController(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_outside_window_does_not_run_jobs(self):
-        with patch("pipelines.nightly_prep_controller.run_financial_crawler") as crawler_mock, patch(
+        with self.assertLogs("pipelines.nightly_prep_controller", level="INFO") as logs, patch(
+            "pipelines.nightly_prep_controller.run_financial_crawler",
+        ) as crawler_mock, patch(
             "pipelines.nightly_prep_controller.run_stock_selection",
         ) as selection_mock:
             result = run_nightly_prep_once(datetime(2026, 4, 8, 12, 0, 0))
@@ -45,9 +47,13 @@ class TestNightlyPrepController(unittest.TestCase):
         self.assertEqual(result, "outside_window")
         crawler_mock.assert_not_called()
         selection_mock.assert_not_called()
+        self.assertIn("outside prep window", "\n".join(logs.output))
 
     def test_runs_crawler_then_selection_once_per_date(self):
-        with patch("pipelines.nightly_prep_controller.get_enabled_accounts", return_value=self.accounts), patch(
+        with self.assertLogs("pipelines.nightly_prep_controller", level="INFO") as logs, patch(
+            "pipelines.nightly_prep_controller.get_enabled_accounts",
+            return_value=self.accounts,
+        ), patch(
             "pipelines.nightly_prep_controller.get_strategy_definition",
             return_value=SimpleNamespace(requires_selection=True),
         ), patch("pipelines.nightly_prep_controller.get_saved_selection_row_count", return_value=5), patch(
@@ -64,6 +70,11 @@ class TestNightlyPrepController(unittest.TestCase):
         self.assertEqual(crawler_mock.call_count, 1)
         self.assertEqual(selection_mock.call_count, 1)
         self.assertEqual(state["status"], "completed")
+        output = "\n".join(logs.output)
+        self.assertIn("Nightly prep starting crawler", output)
+        self.assertIn("Nightly prep crawler completed", output)
+        self.assertIn("Nightly prep starting selection", output)
+        self.assertIn("Nightly prep completed", output)
 
     def test_resumes_at_selection_after_crawler_completed(self):
         scheduler_state.save_nightly_prep_state(
@@ -71,10 +82,14 @@ class TestNightlyPrepController(unittest.TestCase):
             status="failed",
             crawler_started_at="2026-04-08T00:00:00+09:00",
             crawler_finished_at="2026-04-08T00:30:00+09:00",
+            selection_started_at="2026-04-08T00:45:00+09:00",
             error_text="previous failure",
         )
 
-        with patch("pipelines.nightly_prep_controller.get_enabled_accounts", return_value=self.accounts), patch(
+        with self.assertLogs("pipelines.nightly_prep_controller", level="INFO") as logs, patch(
+            "pipelines.nightly_prep_controller.get_enabled_accounts",
+            return_value=self.accounts,
+        ), patch(
             "pipelines.nightly_prep_controller.get_strategy_definition",
             return_value=SimpleNamespace(requires_selection=True),
         ), patch("pipelines.nightly_prep_controller.get_saved_selection_row_count", return_value=3), patch(
@@ -89,9 +104,13 @@ class TestNightlyPrepController(unittest.TestCase):
         crawler_mock.assert_not_called()
         selection_mock.assert_called_once()
         self.assertEqual(state["status"], "completed")
+        self.assertIn("Nightly prep resuming selection", "\n".join(logs.output))
 
     def test_validation_failure_marks_run_failed(self):
-        with patch("pipelines.nightly_prep_controller.get_enabled_accounts", return_value=self.accounts), patch(
+        with self.assertLogs("pipelines.nightly_prep_controller", level="ERROR") as logs, patch(
+            "pipelines.nightly_prep_controller.get_enabled_accounts",
+            return_value=self.accounts,
+        ), patch(
             "pipelines.nightly_prep_controller.get_strategy_definition",
             return_value=SimpleNamespace(requires_selection=True),
         ), patch("pipelines.nightly_prep_controller.get_saved_selection_row_count", return_value=0), patch(
@@ -105,6 +124,7 @@ class TestNightlyPrepController(unittest.TestCase):
         self.assertEqual(result, "failed")
         self.assertEqual(state["status"], "failed")
         notify_mock.assert_called_once()
+        self.assertIn("Nightly prep selection failed", "\n".join(logs.output))
 
     def test_repeated_same_failure_notifies_once(self):
         with patch("pipelines.nightly_prep_controller.get_enabled_accounts", return_value=self.accounts), patch(
