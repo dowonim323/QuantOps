@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from datetime import date, datetime
@@ -23,7 +22,7 @@ from tools.account_record import (
     save_opening_asset,
     save_stock_performance,
 )
-from tools.logger import setup_logging
+from tools.logger import configure_entrypoint_logging
 from tools.market_watcher import (
     MarketMonitor,
     is_today_open_day,
@@ -53,7 +52,6 @@ MAX_DAILY_TRADES = 3
 TRADE_INTERVAL_SECONDS = 3600
 
 BASE_DIR = str(Path(__file__).resolve().parent.parent)
-LOG_DIR = os.path.join(BASE_DIR, "logs")
 
 logger = logging.getLogger("trading_session")
 
@@ -580,7 +578,7 @@ def _run_account_thread(
 
 
 def run_trading_session() -> dict[str, AccountRunStatus]:
-    setup_logging(LOG_DIR)
+    configure_entrypoint_logging(BASE_DIR)
     accounts = get_enabled_accounts()
     if not accounts:
         raise ValueError("No enabled trading accounts configured.")

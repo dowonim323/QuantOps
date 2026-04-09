@@ -1,22 +1,43 @@
+import logging
 import os
 import sys
-import logging
 from datetime import datetime
+from pathlib import Path
 
-def setup_logging(log_dir: str):
+
+def default_log_dir(base_dir: str | os.PathLike[str]) -> str:
+    return str(Path(base_dir) / "logs")
+
+
+def _configure_external_loggers(*, pykis_level: int) -> None:
+    pykis_logger = logging.getLogger("pykis")
+    pykis_logger.handlers = []
+    pykis_logger.propagate = True
+    pykis_logger.setLevel(pykis_level)
+
+    logging.getLogger("urllib3").setLevel(logging.ERROR)
+    logging.getLogger("requests").setLevel(logging.ERROR)
+
+
+def setup_logging(
+    log_dir: str | os.PathLike[str],
+    *,
+    pykis_level: int = logging.ERROR,
+) -> str:
     """
     Sets up logging to file and console with timestamps.
     """
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir_path = Path(log_dir)
+    log_dir_path.mkdir(parents=True, exist_ok=True)
 
     # Log filename with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"{timestamp}.log")
+    log_file = log_dir_path / f"{timestamp}_{os.getpid()}.log"
 
     # Clear existing handlers to ensure our configuration takes precedence
     root_logger = logging.getLogger()
     if root_logger.handlers:
-        root_logger.handlers = []
+        root_logger.handlers.clear()
 
     # Configure logging
     logging.basicConfig(
@@ -24,22 +45,24 @@ def setup_logging(log_dir: str):
         format="[%(asctime)s] %(levelname)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
         ],
-        force=True
+        force=True,
     )
-    
-    # Reconfigure pykis logger to use our root logger settings
-    # This prevents duplicate logs and ensures consistent formatting
-    pykis_logger = logging.getLogger("pykis")
-    pykis_logger.handlers = []  # Remove pykis's default handlers
-    pykis_logger.propagate = True
-    pykis_logger.setLevel(logging.ERROR)
 
-    # Suppress urllib3 and requests logs (only show errors)
-    logging.getLogger("urllib3").setLevel(logging.ERROR)
-    logging.getLogger("requests").setLevel(logging.ERROR)
-    
-    logging.info(f"Logging initialized. Log file: {log_file}")
-    return log_file
+    _configure_external_loggers(pykis_level=pykis_level)
+
+    logging.getLogger(__name__).info("Logging initialized. Log file: %s", log_file)
+    return str(log_file)
+
+
+def configure_entrypoint_logging(
+    base_dir: str | os.PathLike[str],
+    *,
+    pykis_level: int = logging.ERROR,
+) -> str:
+    if logging.getLogger().handlers:
+        return ""
+
+    return setup_logging(default_log_dir(base_dir), pykis_level=pykis_level)
