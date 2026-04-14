@@ -652,9 +652,6 @@ class TestStockSelectionOptimizations(unittest.TestCase):
                     "tools.selection_store.apply_risk_filters",
                     side_effect=lambda df: df,
                 ), patch(
-                    "tools.selection_store.apply_smallcap_filter",
-                    side_effect=lambda df: df,
-                ), patch(
                     "tools.selection_store.get_rank",
                     return_value=reranked,
                 ), patch(
@@ -799,9 +796,6 @@ class TestStockSelectionOptimizations(unittest.TestCase):
                     "tools.selection_store.apply_risk_filters",
                     side_effect=lambda df: df,
                 ), patch(
-                    "tools.selection_store.apply_smallcap_filter",
-                    side_effect=lambda df: df,
-                ), patch(
                     "tools.selection_store.get_rank",
                     return_value=snapshot,
                 ), patch(
@@ -820,6 +814,80 @@ class TestStockSelectionOptimizations(unittest.TestCase):
                     )
 
         self.assertEqual(result.loc[0, "amount"], 100_000_000.0)
+
+    def test_load_stock_selection_does_not_reapply_smallcap_filter_to_saved_snapshot(self):
+        rows = []
+        for index, market_cap in enumerate((10.0, 20.0, 30.0, 40.0, 50.0), start=1):
+            rows.append(
+                {
+                    "단축코드": f"CODE{index}",
+                    "한글명": f"종목{index}",
+                    "price": 100.0 + index,
+                    "market_cap": market_cap,
+                    "amount": 100_000_000.0,
+                    "eps": 1.0,
+                    "bps": 1.0,
+                    "sps": 1.0,
+                    "cps": 1.0,
+                    "delta_oper_income_q": 1.0,
+                    "delta_oper_income_y": 1.0,
+                    "delta_earnings_q": 1.0,
+                    "delta_earnings_y": 1.0,
+                    "asset_shrink": 0.0,
+                    "F_score": 3,
+                    "gp/a": 1.0,
+                    "income_to_debt_growth": 1.0,
+                    "volatility": 1.0,
+                    "rank_total": float(index),
+                    "rank_value": float(index),
+                    "rank_momentum": float(index),
+                    "rank_quality": float(index),
+                    "1/per": 1.0,
+                    "1/pbr": 1.0,
+                    "1/psr": 1.0,
+                    "1/pcr": 1.0,
+                    "poir_q": 1.0,
+                    "poir_y": 1.0,
+                    "peir_q": 1.0,
+                    "peir_y": 1.0,
+                }
+            )
+
+        snapshot = pd.DataFrame(rows)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "stock_selection_test.db"
+            with patch("tools.selection_store.get_stock_selection_db_path", return_value=db_path):
+                save_stock_selection(snapshot, table_date="20260406", strategy_id="krx_vmq")
+
+                with patch(
+                    "tools.selection_store._fetch_latest_quotes",
+                    return_value=snapshot,
+                ), patch(
+                    "tools.selection_store._recalculate_dynamic_metrics",
+                    return_value=snapshot,
+                ), patch(
+                    "tools.selection_store.apply_risk_filters",
+                    side_effect=lambda df: df,
+                ), patch(
+                    "tools.selection_store.get_rank",
+                    return_value=snapshot,
+                ), patch(
+                    "tools.selection_store._fetch_latest_amounts",
+                    return_value=snapshot,
+                ), patch(
+                    "tools.selection_store.apply_custom_selection_filters",
+                    side_effect=lambda df: df,
+                ):
+                    result = load_stock_selection(
+                        table_date="20260406",
+                        kis=MagicMock(),
+                        rerank=True,
+                        top_n=5,
+                        strategy_id="krx_vmq",
+                    )
+
+        self.assertEqual(result["단축코드"].tolist(), [f"CODE{index}" for index in range(1, 6)])
 
     def test_fetch_latest_quotes_preserves_existing_market_cap(self):
         df = pd.DataFrame(

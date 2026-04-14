@@ -16,7 +16,6 @@ from tools.quant_utils import (
     VALUE_METRICS,
     apply_custom_selection_filters,
     apply_risk_filters,
-    apply_smallcap_filter,
     create_stock_objects,
     get_average_amount,
     get_rank,
@@ -332,21 +331,10 @@ def load_stock_selection(
         )
         return df_after_risk
 
-    df_pre_rank = apply_smallcap_filter(df_after_risk)
-    logger.info(
-        "Applied smallcap filter to saved selection. strategy_id=%s table=%s before=%d after=%d",
-        strategy_label,
-        table_name,
-        len(df_after_risk),
-        len(df_pre_rank),
-    )
-    if df_pre_rank.empty:
-        logger.warning(
-            "Saved selection became empty after smallcap filter. strategy_id=%s table=%s",
-            strategy_label,
-            table_name,
-        )
-        return df_pre_rank
+    # Saved snapshots are already generated from the smallcap-filtered universe.
+    # Reapplying the smallcap cutoff here would shrink that saved universe a
+    # second time at trade time.
+    df_pre_rank = df_after_risk.reset_index(drop=True)
 
     df_ranked = get_rank(
         df_pre_rank,
