@@ -17,6 +17,7 @@ from pykis import (
 )
 from tools.notifications import send_notification
 from tools.account_record import save_unfilled_orders
+from tools.retry import retry_simple
 
 if TYPE_CHECKING:
     from pykis import PyKis
@@ -1243,19 +1244,8 @@ def rebalance(
     if not target_codes:
         raise ValueError("stocks_selected에는 최소 한 개의 종목이 필요합니다.")
 
-    logger.info(
-        "Rebalance started. target_symbols=%d cash_ratio=%.4f weight_mode=%s",
-        len(target_codes),
-        cash_ratio,
-        "custom" if target_weights is not None else "equal_weight",
-    )
-
-    def _resolve_target_values(balance_amount: float) -> dict[str, float]:
-        investable_amount = float(balance_amount) * (1 - cash_ratio)
-        if target_weights is None:
-            target_value = investable_amount / len(target_codes)
-            return {symbol: target_value for symbol in target_codes}
-
+    normalized_weights: dict[str, float] | None = None
+    if target_weights is not None:
         normalized_weights = {
             str(symbol): float(weight)
             for symbol, weight in target_weights.items()
@@ -1267,12 +1257,27 @@ def rebalance(
         if not math.isclose(weight_sum, 1.0, rel_tol=1e-9, abs_tol=1e-9):
             raise ValueError(f"target_weights must sum to 1.0, got {weight_sum}")
 
+    logger.info(
+        "Rebalance started. target_symbols=%d cash_ratio=%.4f weight_mode=%s",
+        len(target_codes),
+        cash_ratio,
+        "custom" if target_weights is not None else "equal_weight",
+    )
+
+    def _resolve_target_values(balance_amount: float) -> dict[str, float]:
+        investable_amount = float(balance_amount) * (1 - cash_ratio)
+        if normalized_weights is None:
+            target_value = investable_amount / len(target_codes)
+            return {symbol: target_value for symbol in target_codes}
+
         return {
             symbol: investable_amount * normalized_weights[symbol]
             for symbol in target_codes
         }
 
     account = kis.account()
+    stock_scope_cache: dict[str, Any] = {str(symbol): stock for symbol, stock in stocks_selected.items()}
+    halt_cache: dict[str, bool] = {}
 
     def _snapshot_holdings(balance_obj) -> dict[str, Any]:
         snapshot: dict[str, Any] = {}
@@ -1281,6 +1286,124 @@ def rebalance(
             if symbol:
                 snapshot[str(symbol)] = stock
         return snapshot
+
+    def _get_stock_scope(symbol: str):
+        stock_scope = stock_scope_cache.get(symbol)
+        if stock_scope is None:
+            stock_scope = kis.stock(symbol)
+            stock_scope_cache[symbol] = stock_scope
+        return stock_scope
+
+    def _halt_state(symbol: str, stock_scope=None) -> bool | None:
+        cached = halt_cache.get(symbol)
+        if cached is not None:
+            return cached
+
+        success, halted = retry_simple(
+            lambda: bool((stock_scope or _get_stock_scope(symbol)).quote().halt),
+            max_retries=3,
+            context=f"Halt pre-check ({symbol})",
+            verbose=verbose,
+        )
+
+        if not success or halted is None:
+            return None
+
+        halt_cache[symbol] = halted
+        return halted
+
+    def _resolve_effective_targets(balance_obj, holdings: Mapping[str, Any]) -> tuple[dict[str, float], float, set[str]]:
+        balance_amount = float(balance_obj.amount)
+        investable_amount = balance_amount * (1 - cash_ratio)
+
+        locked_non_target = 0.0
+        fixed_targets: dict[str, float] = {}
+        blocked_targets: set[str] = set()
+        unsellable_targets: dict[str, float] = {}
+
+        for symbol, stock in holdings.items():
+            holding_value = float(getattr(stock, "amount", 0))
+
+            if symbol not in target_codes:
+                locked_non_target += holding_value
+                continue
+
+            halt_state = _halt_state(symbol, stocks_selected.get(symbol))
+            if halt_state is not False:
+                fixed_targets[symbol] = holding_value
+                blocked_targets.add(symbol)
+                if halt_state is None:
+                    logger.warning(
+                        "Treating target as non-tradable because halt status could not be confirmed. symbol=%s",
+                        symbol,
+                    )
+                continue
+
+            qty = int(getattr(stock, "qty", 0) or 0)
+            orderable_qty = int(getattr(stock, "orderable", qty) or 0)
+            if qty > 0 and orderable_qty <= 0:
+                unsellable_targets[symbol] = holding_value
+
+        for symbol in target_codes:
+            if symbol in holdings:
+                continue
+            halt_state = _halt_state(symbol, stocks_selected.get(symbol))
+            if halt_state is not False:
+                fixed_targets[symbol] = 0.0
+                blocked_targets.add(symbol)
+                if halt_state is None:
+                    logger.warning(
+                        "Treating target as non-tradable because halt status could not be confirmed. symbol=%s",
+                        symbol,
+                    )
+
+        while True:
+            remaining_budget = max(
+                0.0,
+                investable_amount - locked_non_target - sum(fixed_targets.values()),
+            )
+
+            adjustable_targets = [
+                symbol for symbol in target_codes
+                if symbol not in fixed_targets
+            ]
+
+            effective_targets = dict(fixed_targets)
+            if not adjustable_targets:
+                return effective_targets, locked_non_target, blocked_targets
+
+            if normalized_weights is None:
+                target_value = remaining_budget / len(adjustable_targets)
+                for symbol in adjustable_targets:
+                    effective_targets[symbol] = target_value
+            else:
+                positive_targets = [
+                    symbol for symbol in adjustable_targets
+                    if normalized_weights[symbol] > 0
+                ]
+                active_weight_sum = sum(normalized_weights[symbol] for symbol in positive_targets)
+                if active_weight_sum <= 0:
+                    for symbol in adjustable_targets:
+                        effective_targets[symbol] = 0.0
+                else:
+                    for symbol in adjustable_targets:
+                        weight = normalized_weights[symbol]
+                        effective_targets[symbol] = (
+                            remaining_budget * (weight / active_weight_sum)
+                            if weight > 0
+                            else 0.0
+                        )
+
+            newly_fixed = False
+            for symbol, holding_value in unsellable_targets.items():
+                if symbol in fixed_targets:
+                    continue
+                if holding_value > effective_targets[symbol]:
+                    fixed_targets[symbol] = holding_value
+                    newly_fixed = True
+
+            if not newly_fixed:
+                return effective_targets, locked_non_target, blocked_targets
 
     orders: list[Any] = []
     errors: list[dict[str, Any]] = []
@@ -1298,7 +1421,17 @@ def rebalance(
             qty = int(getattr(stock, "orderable", getattr(stock, "qty", 0)) or 0)
             if qty <= 0:
                 continue
-            stock_scope = kis.stock(symbol)
+
+            halt_state = _halt_state(symbol)
+            if halt_state is not False:
+                logger.info(
+                    "Step 1 skipped non-target symbol because halt status blocked trading. symbol=%s qty=%d",
+                    symbol,
+                    qty,
+                )
+                continue
+
+            stock_scope = _get_stock_scope(symbol)
             non_target_positions[symbol] = (stock_scope, qty)
 
         logger.info(
@@ -1340,7 +1473,13 @@ def rebalance(
     def step2_attempt() -> tuple[list[Any], list[dict[str, Any]]]:
         balance = get_balance_safe(account, max_retries=max_retries, verbose=verbose)
         holdings = _snapshot_holdings(balance)
-        target_values = _resolve_target_values(float(balance.amount))
+        target_values, locked_non_target, blocked_targets = _resolve_effective_targets(balance, holdings)
+
+        logger.info(
+            "Step 2 adjusted targets. locked_non_target=%.0f fixed_or_blocked_targets=%d",
+            locked_non_target,
+            len(blocked_targets),
+        )
         
         excess_positions: dict[str, tuple["KisStock", float, float]] = {}
         for symbol, stock in holdings.items():
@@ -1360,7 +1499,7 @@ def rebalance(
             if orderable_qty <= 0:
                 continue
 
-            stock_scope = stocks_selected.get(symbol) or kis.stock(symbol)
+            stock_scope = _get_stock_scope(symbol)
             excess_positions[symbol] = (stock_scope, holding_value, target_value)
 
         logger.info(
@@ -1402,7 +1541,13 @@ def rebalance(
     def step3_attempt() -> tuple[list[Any], list[dict[str, Any]]]:
         balance = get_balance_safe(account, max_retries=max_retries, verbose=verbose)
         holdings = _snapshot_holdings(balance)
-        target_values = _resolve_target_values(float(balance.amount))
+        target_values, locked_non_target, blocked_targets = _resolve_effective_targets(balance, holdings)
+
+        logger.info(
+            "Step 3 adjusted targets. locked_non_target=%.0f fixed_or_blocked_targets=%d",
+            locked_non_target,
+            len(blocked_targets),
+        )
         
         buy_candidates: dict[str, tuple["KisStock", float, float]] = {}
         for symbol, stock in stocks_selected.items():
