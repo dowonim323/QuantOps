@@ -194,17 +194,19 @@ def get_db_connection(account_id=None):
     return conn
 
 
-def _serialize_account_row(row, account):
+def _serialize_account_row(row, account, *, include_internal_account_id=False):
     item = dict(row)
     item["strategy_id"] = account.strategy_id
     item["strategy_display_name"] = STRATEGY_MAP[account.strategy_id].display_name
+    if include_internal_account_id:
+        item["_account_id"] = account.account_id
     if current_user.is_authenticated:
         item["account_id"] = account.account_id
         item["account_display_name"] = account.display_name
     return item
 
 
-def _fetch_strategy_rows(query, *, selected_strategy_id, params=()):
+def _fetch_strategy_rows(query, *, selected_strategy_id, params=(), include_internal_account_id=False):
     rows = []
     for account in _iter_strategy_accounts(selected_strategy_id):
         db_path = _resolve_account_db_path(account.account_id)
@@ -215,7 +217,13 @@ def _fetch_strategy_rows(query, *, selected_strategy_id, params=()):
             fetched = conn.execute(query, params).fetchall()
 
         for row in fetched:
-            rows.append(_serialize_account_row(row, account))
+            rows.append(
+                _serialize_account_row(
+                    row,
+                    account,
+                    include_internal_account_id=include_internal_account_id,
+                )
+            )
 
     return rows
 
@@ -238,6 +246,44 @@ def _aggregate_asset_rows(rows):
             grouped_row[key] += row.get(key, 0.0) or 0.0
 
     return [grouped[key] for key in sorted(grouped.keys())]
+
+
+def _build_aggregated_daily_metrics(rows):
+    account_histories = {}
+
+    for row in rows:
+        account_id = row.get("_account_id")
+        final_asset = row.get("final_asset")
+        if not account_id or final_asset is None or final_asset <= 0:
+            continue
+
+        account_histories.setdefault(account_id, []).append(dict(row))
+
+    aggregated = {}
+    for history in account_histories.values():
+        history.sort(key=lambda item: item["date"])
+        prev_final_asset = None
+
+        for row in history:
+            curr_final_asset = row.get("final_asset", 0.0) or 0.0
+            date_key = row["date"]
+            metrics = aggregated.setdefault(date_key, {"profit": 0.0, "base": 0.0})
+
+            if prev_final_asset is None:
+                prev_final_asset = curr_final_asset
+                continue
+
+            transfer_amount = row.get("transfer_amount", 0.0) or 0.0
+            base = prev_final_asset + transfer_amount
+            profit = curr_final_asset - base
+
+            metrics["profit"] += profit
+            if base > 0:
+                metrics["base"] += base
+
+            prev_final_asset = curr_final_asset
+
+    return aggregated
 
 
 def _list_selection_dates_for_strategy(strategy_id: str) -> list[str]:
@@ -394,11 +440,15 @@ def index():
 @app.route("/api/assets")
 def get_assets():
     selected_strategy_id = _get_selected_strategy_id()
+    aggregate_scope = _should_aggregate_asset_scope(selected_strategy_id)
     assets = _fetch_strategy_rows(
         "SELECT * FROM daily_assets ORDER BY date",
         selected_strategy_id=selected_strategy_id,
+        include_internal_account_id=aggregate_scope,
     )
-    if _should_aggregate_asset_scope(selected_strategy_id):
+    aggregated_daily_metrics = None
+    if aggregate_scope:
+        aggregated_daily_metrics = _build_aggregated_daily_metrics(assets)
         assets = _aggregate_asset_rows(assets)
 
     data = []
@@ -412,12 +462,18 @@ def get_assets():
         data[0]["cumulative_return"] = 0.0
 
     for index in range(1, len(data)):
-        prev = data[index - 1]["final_asset"] or 0.0
-        curr = data[index]["final_asset"] or 0.0
-        transfer = data[index].get("transfer_amount", 0.0) or 0.0
+        if aggregated_daily_metrics is None:
+            prev = data[index - 1]["final_asset"] or 0.0
+            curr = data[index]["final_asset"] or 0.0
+            transfer = data[index].get("transfer_amount", 0.0) or 0.0
 
-        base = prev + transfer
-        profit = curr - base
+            base = prev + transfer
+            profit = curr - base
+        else:
+            metrics = aggregated_daily_metrics.get(data[index]["date"], {})
+            base = metrics.get("base", 0.0)
+            profit = metrics.get("profit", 0.0)
+
         daily_return = (profit / base) if base > 0 else 0.0
         cumulative_index *= 1 + daily_return
 
@@ -500,11 +556,15 @@ def get_orders():
 @app.route("/api/analytics")
 def get_analytics():
     selected_strategy_id = _get_selected_strategy_id()
+    aggregate_scope = _should_aggregate_asset_scope(selected_strategy_id)
     assets = _fetch_strategy_rows(
         "SELECT * FROM daily_assets ORDER BY date ASC",
         selected_strategy_id=selected_strategy_id,
+        include_internal_account_id=aggregate_scope,
     )
-    if _should_aggregate_asset_scope(selected_strategy_id):
+    aggregated_daily_metrics = None
+    if aggregate_scope:
+        aggregated_daily_metrics = _build_aggregated_daily_metrics(assets)
         assets = _aggregate_asset_rows(assets)
 
     data = []
@@ -516,12 +576,17 @@ def get_analytics():
         return jsonify({})
 
     for index in range(1, len(data)):
-        prev = data[index - 1]["final_asset"] or 0.0
-        curr = data[index]["final_asset"] or 0.0
-        transfer = data[index].get("transfer_amount", 0.0) or 0.0
+        if aggregated_daily_metrics is None:
+            prev = data[index - 1]["final_asset"] or 0.0
+            curr = data[index]["final_asset"] or 0.0
+            transfer = data[index].get("transfer_amount", 0.0) or 0.0
 
-        base = prev + transfer
-        profit = curr - base
+            base = prev + transfer
+            profit = curr - base
+        else:
+            metrics = aggregated_daily_metrics.get(data[index]["date"], {})
+            base = metrics.get("base", 0.0)
+            profit = metrics.get("profit", 0.0)
 
         data[index]["daily_return"] = (profit / base) if base > 0 else 0.0
         data[index]["daily_profit"] = profit

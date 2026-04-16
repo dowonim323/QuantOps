@@ -119,6 +119,15 @@ class TestWebApp(unittest.TestCase):
                 order_rows,
             )
 
+    def _replace_asset_rows(self, account_id, asset_rows):
+        db_path = self._resolve_account_db_path(account_id)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DELETE FROM daily_assets")
+            conn.executemany(
+                "INSERT INTO daily_assets VALUES (?, ?, ?, ?, ?)",
+                asset_rows,
+            )
+
     def _create_selection_db(self, strategy_id, table_name, rows):
         db_path = self._resolve_selection_db_path(strategy_id)
         with sqlite3.connect(db_path) as conn:
@@ -248,6 +257,66 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(payload[0]["final_asset"], 1_480_000.0)
         self.assertEqual(payload[0]["deposit_d2"], 67_000.0)
         self.assertEqual(payload[0]["transfer_amount"], 30_000.0)
+
+    def test_all_strategy_assets_ignore_new_account_inception_in_cumulative_return(self):
+        self._replace_asset_rows(
+            "krx_vmq",
+            [
+                ("2026-04-09", 1_000_000.0, 1_000_000.0, 0.0, 0.0),
+                ("2026-04-10", 1_000_000.0, 1_100_000.0, 0.0, 0.0),
+            ],
+        )
+        self._replace_asset_rows(
+            "krx_us_core4",
+            [("2026-04-10", 2_000_000.0, 2_000_000.0, 0.0, 0.0)],
+        )
+
+        login_response = self.client.post(
+            "/login",
+            json={"password": "secret-password"},
+        )
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/api/assets?strategy_id=all")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual([item["date"] for item in payload], ["2026-04-09", "2026-04-10"])
+        self.assertAlmostEqual(payload[0]["cumulative_return"], 0.0)
+        self.assertAlmostEqual(payload[1]["daily_return"], 0.1)
+        self.assertAlmostEqual(payload[1]["cumulative_return"], 10.0)
+
+    def test_all_strategy_analytics_ignore_new_account_inception_in_daily_return(self):
+        self._replace_asset_rows(
+            "krx_vmq",
+            [
+                ("2026-04-09", 1_000_000.0, 1_000_000.0, 0.0, 0.0),
+                ("2026-04-10", 1_000_000.0, 1_100_000.0, 0.0, 0.0),
+            ],
+        )
+        self._replace_asset_rows(
+            "krx_us_core4",
+            [("2026-04-10", 2_000_000.0, 2_000_000.0, 0.0, 0.0)],
+        )
+
+        login_response = self.client.post(
+            "/login",
+            json={"password": "secret-password"},
+        )
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/api/analytics?strategy_id=all")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        daily_returns = {item["date"]: item for item in payload["daily_returns"]}
+
+        self.assertAlmostEqual(daily_returns["2026-04-09"]["daily_return"], 0.0)
+        self.assertAlmostEqual(daily_returns["2026-04-10"]["daily_return"], 10.0)
+        self.assertAlmostEqual(daily_returns["2026-04-10"]["daily_profit"], 100_000.0)
+        self.assertEqual(len(payload["monthly_returns"]), 1)
+        self.assertEqual(payload["monthly_returns"][0]["month"], "2026-04")
+        self.assertAlmostEqual(payload["monthly_returns"][0]["return"], 10.0)
 
 
 if __name__ == "__main__":
