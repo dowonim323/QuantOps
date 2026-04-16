@@ -12,16 +12,19 @@ from tools.trading_utils import rebalance
 class TestRebalance(unittest.TestCase):
     def _make_scope(self, *, halt: bool) -> MagicMock:
         scope = MagicMock()
+        scope.market = "KRX"
         scope.quote.return_value = SimpleNamespace(halt=halt)
         return scope
 
     def _make_failing_scope(self) -> MagicMock:
         scope = MagicMock()
+        scope.market = "KRX"
         scope.quote.side_effect = RuntimeError("quote unavailable")
         return scope
 
     def _make_flaky_scope(self, *results: object) -> MagicMock:
         scope = MagicMock()
+        scope.market = "KRX"
         scope.quote.side_effect = list(results)
         return scope
 
@@ -39,6 +42,10 @@ class TestRebalance(unittest.TestCase):
             qty=qty,
             orderable=orderable,
         )
+
+    def _assert_quote_not_used(self, *scopes: MagicMock) -> None:
+        for scope in scopes:
+            scope.quote.assert_not_called()
 
     def test_rebalance_skips_halted_non_target_and_uses_remaining_budget(self):
         kis = MagicMock()
@@ -62,7 +69,13 @@ class TestRebalance(unittest.TestCase):
             ],
         )
 
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol == "D"
+
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])) as sell_qty_mock, patch(
@@ -93,6 +106,12 @@ class TestRebalance(unittest.TestCase):
         self.assertAlmostEqual(buy_candidates["B"][2], 30.0)
         self.assertAlmostEqual(buy_candidates["C"][1], 25.0)
         self.assertAlmostEqual(buy_candidates["C"][2], 30.0)
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            stocks_selected["C"],
+            halted_non_target,
+        )
 
     def test_rebalance_fixes_halted_overweight_target_and_renormalizes_targets(self):
         kis = MagicMock()
@@ -113,7 +132,13 @@ class TestRebalance(unittest.TestCase):
             ],
         )
 
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol == "A"
+
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])), patch(
@@ -139,6 +164,11 @@ class TestRebalance(unittest.TestCase):
         self.assertEqual(set(buy_candidates), {"B"})
         self.assertAlmostEqual(buy_candidates["B"][1], 20.0)
         self.assertAlmostEqual(buy_candidates["B"][2], 22.5)
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            stocks_selected["C"],
+        )
 
     def test_rebalance_recomputes_custom_weight_targets_after_locked_capital(self):
         kis = MagicMock()
@@ -162,7 +192,13 @@ class TestRebalance(unittest.TestCase):
             ],
         )
 
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol == "D"
+
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])), patch(
@@ -187,6 +223,12 @@ class TestRebalance(unittest.TestCase):
         self.assertAlmostEqual(buy_candidates["B"][2], 30.0)
         self.assertAlmostEqual(buy_candidates["C"][1], 10.0)
         self.assertAlmostEqual(buy_candidates["C"][2], 20.0)
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            stocks_selected["C"],
+            halted_non_target,
+        )
 
     def test_rebalance_fixes_unsellable_target_that_becomes_overweight_after_locking(self):
         kis = MagicMock()
@@ -208,7 +250,13 @@ class TestRebalance(unittest.TestCase):
             ],
         )
 
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol == "D"
+
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])), patch(
@@ -227,6 +275,11 @@ class TestRebalance(unittest.TestCase):
 
         sell_value_mock.assert_not_called()
         buy_value_mock.assert_not_called()
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            halted_non_target,
+        )
 
     def test_rebalance_leaves_cash_when_only_zero_weight_targets_remain_adjustable(self):
         kis = MagicMock()
@@ -247,7 +300,13 @@ class TestRebalance(unittest.TestCase):
             ],
         )
 
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol in {"A", "B"}
+
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])), patch(
@@ -267,17 +326,25 @@ class TestRebalance(unittest.TestCase):
 
         sell_value_mock.assert_not_called()
         buy_value_mock.assert_not_called()
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            stocks_selected["C"],
+            stocks_selected["D"],
+        )
 
-    def test_rebalance_treats_quote_failure_as_non_tradable(self):
+    def test_rebalance_treats_domestic_status_failure_as_non_tradable(self):
         kis = MagicMock()
         kis.virtual = False
 
         stocks_selected = {
-            "A": self._make_failing_scope(),
+            "A": self._make_scope(halt=False),
             "B": self._make_scope(halt=False),
             "C": self._make_scope(halt=False),
         }
-        unknown_non_target = self._make_failing_scope()
+        unknown_non_target = self._make_scope(halt=False)
+        stocks_selected["A"].quote.side_effect = AssertionError("quote() must not be used for KRX halt gate")
+        unknown_non_target.quote.side_effect = AssertionError("quote() must not be used for KRX halt gate")
         kis.stock.side_effect = lambda symbol: {"D": unknown_non_target}[symbol]
 
         balance = SimpleNamespace(
@@ -290,7 +357,16 @@ class TestRebalance(unittest.TestCase):
             ],
         )
 
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            if symbol in {"A", "D"}:
+                raise RuntimeError("status unavailable")
+
+            return False
+
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])) as sell_qty_mock, patch(
@@ -316,21 +392,34 @@ class TestRebalance(unittest.TestCase):
         buy_candidates = buy_value_mock.call_args.kwargs["stocks"]
         self.assertEqual(set(buy_candidates), {"B"})
         self.assertAlmostEqual(buy_candidates["B"][2], 22.5)
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            stocks_selected["C"],
+            unknown_non_target,
+        )
 
-    def test_rebalance_retries_transient_quote_failure_before_buying_target(self):
+    def test_rebalance_retries_transient_domestic_status_failure_before_buying_target(self):
         kis = MagicMock()
         kis.virtual = False
 
-        flaky_scope = self._make_flaky_scope(
-            RuntimeError("quote unavailable"),
-            RuntimeError("quote unavailable"),
-            SimpleNamespace(halt=False),
-        )
+        flaky_scope = self._make_scope(halt=False)
+        flaky_scope.quote.side_effect = AssertionError("quote() must not be used for KRX halt gate")
         stocks_selected = {
             "A": flaky_scope,
             "B": self._make_scope(halt=False),
             "C": self._make_scope(halt=False),
         }
+
+        attempts = {"A": 0}
+
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            if symbol == "A":
+                attempts["A"] += 1
+                if attempts["A"] < 3:
+                    raise RuntimeError("status unavailable")
+
+            return False
 
         balance = SimpleNamespace(
             amount=90.0,
@@ -341,6 +430,9 @@ class TestRebalance(unittest.TestCase):
         )
 
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])), patch(
@@ -358,12 +450,17 @@ class TestRebalance(unittest.TestCase):
             )
 
         sell_value_mock.assert_not_called()
-        self.assertEqual(flaky_scope.quote.call_count, 3)
+        self.assertEqual(attempts["A"], 3)
 
         buy_candidates = buy_value_mock.call_args.kwargs["stocks"]
         self.assertEqual(set(buy_candidates), {"A"})
         self.assertAlmostEqual(buy_candidates["A"][1], 0.0)
         self.assertAlmostEqual(buy_candidates["A"][2], 30.0)
+        self._assert_quote_not_used(
+            flaky_scope,
+            stocks_selected["B"],
+            stocks_selected["C"],
+        )
 
     def test_rebalance_retries_cold_stock_scope_resolution_for_non_target(self):
         kis = MagicMock()
@@ -403,6 +500,9 @@ class TestRebalance(unittest.TestCase):
         )
 
         with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            return_value=False,
+        ), patch(
             "tools.trading_utils.get_balance_safe",
             side_effect=[balance, balance, balance],
         ), patch("tools.trading_utils.sell_qty", return_value=([], [])) as sell_qty_mock, patch(
@@ -422,6 +522,116 @@ class TestRebalance(unittest.TestCase):
         self.assertEqual(kis.stock.call_count, 3)
         sell_candidates = sell_qty_mock.call_args.kwargs["stocks"]
         self.assertEqual(set(sell_candidates), {"D"})
+        self._assert_quote_not_used(
+            stocks_selected["A"],
+            stocks_selected["B"],
+            stocks_selected["C"],
+            non_target_scope,
+        )
+
+    def test_rebalance_skips_non_target_when_domestic_status_reports_halt(self):
+        kis = MagicMock()
+        kis.virtual = False
+
+        stocks_selected = {
+            "A": self._make_scope(halt=False),
+            "B": self._make_scope(halt=False),
+            "C": self._make_scope(halt=False),
+        }
+        halted_non_target = self._make_scope(halt=False)
+        kis.stock.side_effect = lambda symbol: {"D": halted_non_target}[symbol]
+
+        balance = SimpleNamespace(
+            amount=110.0,
+            stocks=[
+                self._make_holding("A", amount=45.0, qty=45, orderable=45),
+                self._make_holding("B", amount=20.0, qty=20, orderable=20),
+                self._make_holding("C", amount=25.0, qty=25, orderable=25),
+                self._make_holding("D", amount=20.0, qty=10, orderable=10),
+            ],
+        )
+
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol == "D"
+
+        with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
+            "tools.trading_utils.get_balance_safe",
+            side_effect=[balance, balance, balance],
+        ), patch("tools.trading_utils.sell_qty", return_value=([], [])) as sell_qty_mock, patch(
+            "tools.trading_utils.sell_value",
+            return_value=([], []),
+        ) as sell_value_mock, patch(
+            "tools.trading_utils.buy_value",
+            return_value=([], []),
+        ) as buy_value_mock:
+            result = rebalance(
+                kis,
+                stocks_selected,
+                cash_ratio=0.0,
+                max_retries=1,
+            )
+
+        self.assertEqual(result, {"orders": [], "errors": []})
+        sell_qty_mock.assert_not_called()
+
+        sell_candidates = sell_value_mock.call_args.kwargs["stocks"]
+        self.assertEqual(set(sell_candidates), {"A"})
+
+        buy_candidates = buy_value_mock.call_args.kwargs["stocks"]
+        self.assertEqual(set(buy_candidates), {"B", "C"})
+
+    def test_rebalance_blocks_target_when_domestic_status_reports_halt(self):
+        kis = MagicMock()
+        kis.virtual = False
+
+        stocks_selected = {
+            "A": self._make_scope(halt=False),
+            "B": self._make_scope(halt=False),
+            "C": self._make_scope(halt=False),
+        }
+
+        balance = SimpleNamespace(
+            amount=90.0,
+            stocks=[
+                self._make_holding("A", amount=45.0, qty=45, orderable=45),
+                self._make_holding("B", amount=20.0, qty=20, orderable=20),
+                self._make_holding("C", amount=25.0, qty=25, orderable=25),
+            ],
+        )
+
+        def _status_side_effect(_kis, symbol: str) -> bool:
+            return symbol == "A"
+
+        with patch(
+            "tools.trading_utils.get_domestic_trading_halt",
+            side_effect=_status_side_effect,
+        ), patch(
+            "tools.trading_utils.get_balance_safe",
+            side_effect=[balance, balance, balance],
+        ), patch("tools.trading_utils.sell_qty", return_value=([], [])), patch(
+            "tools.trading_utils.sell_value",
+            return_value=([], []),
+        ) as sell_value_mock, patch(
+            "tools.trading_utils.buy_value",
+            return_value=([], []),
+        ) as buy_value_mock:
+            rebalance(
+                kis,
+                stocks_selected,
+                cash_ratio=0.0,
+                max_retries=1,
+            )
+
+        sell_candidates = sell_value_mock.call_args.kwargs["stocks"]
+        self.assertEqual(set(sell_candidates), {"C"})
+        self.assertAlmostEqual(sell_candidates["C"][2], 22.5)
+
+        buy_candidates = buy_value_mock.call_args.kwargs["stocks"]
+        self.assertEqual(set(buy_candidates), {"B"})
+        self.assertAlmostEqual(buy_candidates["B"][2], 22.5)
 
 
 if __name__ == "__main__":

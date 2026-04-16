@@ -15,6 +15,7 @@ from pykis import (
     KisSubscriptionEventArgs,
     KisWebsocketClient,
 )
+from pykis.api.stock.status import domestic_trading_status
 from tools.notifications import send_notification
 from tools.account_record import save_unfilled_orders
 from tools.retry import retry_simple
@@ -187,6 +188,17 @@ def _append_error(
             "error": repr(exc),
         }
     )
+
+
+def get_domestic_trading_halt(kis: "PyKis", symbol: str) -> bool:
+    """국내 종목의 거래정지 여부를 bool로 정규화합니다."""
+    status = domestic_trading_status(kis, symbol)
+    halt = getattr(status, "halt", None)
+
+    if not isinstance(halt, bool):
+        raise TypeError(f"Invalid domestic trading halt status for {symbol}: {halt!r}")
+
+    return halt
 
 
 def _update_qty_state(
@@ -1299,18 +1311,59 @@ def rebalance(
         if cached is not None:
             return cached
 
-        success, halted = retry_simple(
-            lambda: bool((stock_scope or _get_stock_scope(symbol)).quote().halt),
-            max_retries=3,
-            context=f"Halt pre-check ({symbol})",
-            verbose=verbose,
-        )
+        scope = stock_scope
+        market = getattr(scope, "market", None) if scope is not None else None
+
+        if scope is None:
+            scope_success, resolved_scope = retry_simple(
+                lambda: _get_stock_scope(symbol),
+                max_retries=3,
+                context=f"Stock scope pre-check ({symbol})",
+                verbose=verbose,
+            )
+
+            if scope_success and resolved_scope is not None:
+                scope = resolved_scope
+                market = getattr(scope, "market", None)
+
+        status_success = False
+        status_halt: bool | None = None
+
+        if market == "KRX":
+            status_success, status_halt = retry_simple(
+                lambda: get_domestic_trading_halt(kis, symbol),
+                max_retries=3,
+                context=f"Trading halt pre-check ({symbol})" if verbose else "",
+                verbose=verbose,
+            )
+
+            if status_success and status_halt is not None:
+                halt_cache[symbol] = status_halt
+                return status_halt
+
+            return None
+
+        if scope is None:
+            success = False
+            halted = None
+        else:
+            success, halted = retry_simple(
+                lambda: bool(scope.quote().halt),
+                max_retries=3,
+                context=f"Halt pre-check ({symbol})",
+                verbose=verbose,
+            )
+
+        if success and halted is not None:
+            halt_cache[symbol] = halted
+            return halted
+
+        if status_success and status_halt is not None:
+            halt_cache[symbol] = status_halt
+            return status_halt
 
         if not success or halted is None:
             return None
-
-        halt_cache[symbol] = halted
-        return halted
 
     def _resolve_effective_targets(balance_obj, holdings: Mapping[str, Any]) -> tuple[dict[str, float], float, set[str]]:
         balance_amount = float(balance_obj.amount)
