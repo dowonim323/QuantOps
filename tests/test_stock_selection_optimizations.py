@@ -11,6 +11,7 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools.quant_utils import (
+    _compute_volatility,
     _evaluate_ranked_candidates,
     create_stock_objects,
     get_average_amount,
@@ -412,6 +413,18 @@ class TestStockSelectionOptimizations(unittest.TestCase):
 
         volatility_mock.assert_not_called()
         self.assertEqual(result.loc[0, "volatility"], -1.5)
+
+    def test_compute_volatility_requests_adjusted_prices(self):
+        stock = MagicMock()
+        stock.daily_chart.return_value = MagicMock(
+            bars=[MagicMock(time="2024-01-01", close=100.0), MagicMock(time="2024-01-08", close=110.0)]
+        )
+
+        with patch("tools.quant_utils.today_kst", return_value=pd.Timestamp("2024-01-15")):
+            _compute_volatility(stock, "A")
+
+        stock.daily_chart.assert_called_once()
+        self.assertTrue(stock.daily_chart.call_args.kwargs["adjust"])
 
     def test_get_stock_quote_ignores_incoming_market_cap_for_kis_refresh(self):
         df = pd.DataFrame(

@@ -237,7 +237,7 @@ def _compute_volatility(stock: Any, code: str) -> tuple[float, bool]:
     """주가 변동성을 계산합니다."""
     one_year_ago = today_kst() - timedelta(days=_LOOKBACK_DAYS)
     chart = _retry_stock_call(
-        lambda: stock.daily_chart(start=one_year_ago, period="week"),
+        lambda: stock.daily_chart(start=one_year_ago, period="week", adjust=True),
         _MAX_STOCK_API_RETRY,
         f"{code}의 차트 데이터를 10회 연속 불러오기에 실패하였습니다.",
     )
